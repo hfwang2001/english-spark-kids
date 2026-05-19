@@ -1,0 +1,22 @@
+export const words = [
+  { id: "apple", english: "apple", chinese: "苹果", color: "#f75f5f", accent: "#fff0b3", emoji: "🍎" },
+  { id: "banana", english: "banana", chinese: "香蕉", color: "#f7c948", accent: "#4b9c52", emoji: "🍌" },
+  { id: "cat", english: "cat", chinese: "猫", color: "#ff9f68", accent: "#6c5ce7", emoji: "🐱" },
+  { id: "dog", english: "dog", chinese: "狗", color: "#a47148", accent: "#4cc9f0", emoji: "🐶" },
+  { id: "ball", english: "ball", chinese: "球", color: "#4361ee", accent: "#ffbe0b", emoji: "⚽" },
+  { id: "car", english: "car", chinese: "汽车", color: "#ef476f", accent: "#06d6a0", emoji: "🚗" },
+  { id: "sun", english: "sun", chinese: "太阳", color: "#ffb703", accent: "#fb8500", emoji: "☀️" },
+  { id: "moon", english: "moon", chinese: "月亮", color: "#7b8cde", accent: "#ffd166", emoji: "🌙" },
+  { id: "star", english: "star", chinese: "星星", color: "#ffd166", accent: "#118ab2", emoji: "⭐" },
+  { id: "fish", english: "fish", chinese: "鱼", color: "#00b4d8", accent: "#ffafcc", emoji: "🐟" },
+  { id: "bird", english: "bird", chinese: "鸟", color: "#3a86ff", accent: "#ff006e", emoji: "🐦" },
+  { id: "flower", english: "flower", chinese: "花", color: "#ff70a6", accent: "#70e000", emoji: "🌸" },
+  { id: "tree", english: "tree", chinese: "树", color: "#2d6a4f", accent: "#d8f3dc", emoji: "🌳" },
+  { id: "book", english: "book", chinese: "书", color: "#8e6cff", accent: "#ffdd00", emoji: "📚" },
+  { id: "chair", english: "chair", chinese: "椅子", color: "#bc6c25", accent: "#dda15e", emoji: "🪑" },
+  { id: "milk", english: "milk", chinese: "牛奶", color: "#f8f9fa", accent: "#48cae4", emoji: "🥛" },
+  { id: "water", english: "water", chinese: "水", color: "#48cae4", accent: "#023e8a", emoji: "💧" },
+  { id: "shoes", english: "shoes", chinese: "鞋子", color: "#ff595e", accent: "#1982c4", emoji: "👟" },
+  { id: "hat", english: "hat", chinese: "帽子", color: "#6a4c93", accent: "#ffca3a", emoji: "🎩" },
+  { id: "teddy", english: "teddy bear", chinese: "泰迪熊", color: "#b08968", accent: "#ffc8dd", emoji: "🧸" }
+];

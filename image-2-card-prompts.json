@@ -1,0 +1,102 @@
+[
+  {
+    "file": "assets/cards/apple.png",
+    "model": "image-2",
+    "prompt": "Use case: scientific-educational\nAsset type: square word-card image for a 3-6 year old English learning web game\nPrimary request: create a joyful, high-polish 3D cartoon image of \"apple\" (苹果).\nStyle: bright preschool learning game, chunky rounded shapes, tactile toy-like materials, expressive but simple.\nComposition: centered subject, full object visible, generous padding, dynamic sparkle accents, no text, no watermark.\nColor cue: use #f75f5f as the main accent and #fff0b3 as the secondary accent.\nBackground: clean layered scene with soft depth, suitable for a flashy word card."
+  },
+  {
+    "file": "assets/cards/banana.png",
+    "model": "image-2",
+    "prompt": "Use case: scientific-educational\nAsset type: square word-card image for a 3-6 year old English learning web game\nPrimary request: create a joyful, high-polish 3D cartoon image of \"banana\" (香蕉).\nStyle: bright preschool learning game, chunky rounded shapes, tactile toy-like materials, expressive but simple.\nComposition: centered subject, full object visible, generous padding, dynamic sparkle accents, no text, no watermark.\nColor cue: use #f7c948 as the main accent and #4b9c52 as the secondary accent.\nBackground: clean layered scene with soft depth, suitable for a flashy word card."
+  },
+  {
+    "file": "assets/cards/cat.png",
+    "model": "image-2",
+    "prompt": "Use case: scientific-educational\nAsset type: square word-card image for a 3-6 year old English learning web game\nPrimary request: create a joyful, high-polish 3D cartoon image of \"cat\" (猫).\nStyle: bright preschool learning game, chunky rounded shapes, tactile toy-like materials, expressive but simple.\nComposition: centered subject, full object visible, generous padding, dynamic sparkle accents, no text, no watermark.\nColor cue: use #ff9f68 as the main accent and #6c5ce7 as the secondary accent.\nBackground: clean layered scene with soft depth, suitable for a flashy word card."
+  },
+  {
+    "file": "assets/cards/dog.png",
+    "model": "image-2",
+    "prompt": "Use case: scientific-educational\nAsset type: square word-card image for a 3-6 year old English learning web game\nPrimary request: create a joyful, high-polish 3D cartoon image of \"dog\" (狗).\nStyle: bright preschool learning game, chunky rounded shapes, tactile toy-like materials, expressive but simple.\nComposition: centered subject, full object visible, generous padding, dynamic sparkle accents, no text, no watermark.\nColor cue: use #a47148 as the main accent and #4cc9f0 as the secondary accent.\nBackground: clean layered scene with soft depth, suitable for a flashy word card."
+  },
+  {
+    "file": "assets/cards/ball.png",
+    "model": "image-2",
+    "prompt": "Use case: scientific-educational\nAsset type: square word-card image for a 3-6 year old English learning web game\nPrimary request: create a joyful, high-polish 3D cartoon image of \"ball\" (球).\nStyle: bright preschool learning game, chunky rounded shapes, tactile toy-like materials, expressive but simple.\nComposition: centered subject, full object visible, generous padding, dynamic sparkle accents, no text, no watermark.\nColor cue: use #4361ee as the main accent and #ffbe0b as the secondary accent.\nBackground: clean layered scene with soft depth, suitable for a flashy word card."
+  },
+  {
+    "file": "assets/cards/car.png",
+    "model": "image-2",
+    "prompt": "Use case: scientific-educational\nAsset type: square word-card image for a 3-6 year old English learning web game\nPrimary request: create a joyful, high-polish 3D cartoon image of \"car\" (汽车).\nStyle: bright preschool learning game, chunky rounded shapes, tactile toy-like materials, expressive but simple.\nComposition: centered subject, full object visible, generous padding, dynamic sparkle accents, no text, no watermark.\nColor cue: use #ef476f as the main accent and #06d6a0 as the secondary accent.\nBackground: clean layered scene with soft depth, suitable for a flashy word card."
+  },
+  {
+    "file": "assets/cards/sun.png",
+    "model": "image-2",
+    "prompt": "Use case: scientific-educational\nAsset type: square word-card image for a 3-6 year old English learning web game\nPrimary request: create a joyful, high-polish 3D cartoon image of \"sun\" (太阳).\nStyle: bright preschool learning game, chunky rounded shapes, tactile toy-like materials, expressive but simple.\nComposition: centered subject, full object visible, generous padding, dynamic sparkle accents, no text, no watermark.\nColor cue: use #ffb703 as the main accent and #fb8500 as the secondary accent.\nBackground: clean layered scene with soft depth, suitable for a flashy word card."
+  },
+  {
+    "file": "assets/cards/moon.png",
+    "model": "image-2",
+    "prompt": "Use case: scientific-educational\nAsset type: square word-card image for a 3-6 year old English learning web game\nPrimary request: create a joyful, high-polish 3D cartoon image of \"moon\" (月亮).\nStyle: bright preschool learning game, chunky rounded shapes, tactile toy-like materials, expressive but simple.\nComposition: centered subject, full object visible, generous padding, dynamic sparkle accents, no text, no watermark.\nColor cue: use #7b8cde as the main accent and #ffd166 as the secondary accent.\nBackground: clean layered scene with soft depth, suitable for a flashy word card."
+  },
+  {
+    "file": "assets/cards/star.png",
+    "model": "image-2",
+    "prompt": "Use case: scientific-educational\nAsset type: square word-card image for a 3-6 year old English learning web game\nPrimary request: create a joyful, high-polish 3D cartoon image of \"star\" (星星).\nStyle: bright preschool learning game, chunky rounded shapes, tactile toy-like materials, expressive but simple.\nComposition: centered subject, full object visible, generous padding, dynamic sparkle accents, no text, no watermark.\nColor cue: use #ffd166 as the main accent and #118ab2 as the secondary accent.\nBackground: clean layered scene with soft depth, suitable for a flashy word card."
+  },
+  {
+    "file": "assets/cards/fish.png",
+    "model": "image-2",
+    "prompt": "Use case: scientific-educational\nAsset type: square word-card image for a 3-6 year old English learning web game\nPrimary request: create a joyful, high-polish 3D cartoon image of \"fish\" (鱼).\nStyle: bright preschool learning game, chunky rounded shapes, tactile toy-like materials, expressive but simple.\nComposition: centered subject, full object visible, generous padding, dynamic sparkle accents, no text, no watermark.\nColor cue: use #00b4d8 as the main accent and #ffafcc as the secondary accent.\nBackground: clean layered scene with soft depth, suitable for a flashy word card."
+  },
+  {
+    "file": "assets/cards/bird.png",
+    "model": "image-2",
+    "prompt": "Use case: scientific-educational\nAsset type: square word-card image for a 3-6 year old English learning web game\nPrimary request: create a joyful, high-polish 3D cartoon image of \"bird\" (鸟).\nStyle: bright preschool learning game, chunky rounded shapes, tactile toy-like materials, expressive but simple.\nComposition: centered subject, full object visible, generous padding, dynamic sparkle accents, no text, no watermark.\nColor cue: use #3a86ff as the main accent and #ff006e as the secondary accent.\nBackground: clean layered scene with soft depth, suitable for a flashy word card."
+  },
+  {
+    "file": "assets/cards/flower.png",
+    "model": "image-2",
+    "prompt": "Use case: scientific-educational\nAsset type: square word-card image for a 3-6 year old English learning web game\nPrimary request: create a joyful, high-polish 3D cartoon image of \"flower\" (花).\nStyle: bright preschool learning game, chunky rounded shapes, tactile toy-like materials, expressive but simple.\nComposition: centered subject, full object visible, generous padding, dynamic sparkle accents, no text, no watermark.\nColor cue: use #ff70a6 as the main accent and #70e000 as the secondary accent.\nBackground: clean layered scene with soft depth, suitable for a flashy word card."
+  },
+  {
+    "file": "assets/cards/tree.png",
+    "model": "image-2",
+    "prompt": "Use case: scientific-educational\nAsset type: square word-card image for a 3-6 year old English learning web game\nPrimary request: create a joyful, high-polish 3D cartoon image of \"tree\" (树).\nStyle: bright preschool learning game, chunky rounded shapes, tactile toy-like materials, expressive but simple.\nComposition: centered subject, full object visible, generous padding, dynamic sparkle accents, no text, no watermark.\nColor cue: use #2d6a4f as the main accent and #d8f3dc as the secondary accent.\nBackground: clean layered scene with soft depth, suitable for a flashy word card."
+  },
+  {
+    "file": "assets/cards/book.png",
+    "model": "image-2",
+    "prompt": "Use case: scientific-educational\nAsset type: square word-card image for a 3-6 year old English learning web game\nPrimary request: create a joyful, high-polish 3D cartoon image of \"book\" (书).\nStyle: bright preschool learning game, chunky rounded shapes, tactile toy-like materials, expressive but simple.\nComposition: centered subject, full object visible, generous padding, dynamic sparkle accents, no text, no watermark.\nColor cue: use #8e6cff as the main accent and #ffdd00 as the secondary accent.\nBackground: clean layered scene with soft depth, suitable for a flashy word card."
+  },
+  {
+    "file": "assets/cards/chair.png",
+    "model": "image-2",
+    "prompt": "Use case: scientific-educational\nAsset type: square word-card image for a 3-6 year old English learning web game\nPrimary request: create a joyful, high-polish 3D cartoon image of \"chair\" (椅子).\nStyle: bright preschool learning game, chunky rounded shapes, tactile toy-like materials, expressive but simple.\nComposition: centered subject, full object visible, generous padding, dynamic sparkle accents, no text, no watermark.\nColor cue: use #bc6c25 as the main accent and #dda15e as the secondary accent.\nBackground: clean layered scene with soft depth, suitable for a flashy word card."
+  },
+  {
+    "file": "assets/cards/milk.png",
+    "model": "image-2",
+    "prompt": "Use case: scientific-educational\nAsset type: square word-card image for a 3-6 year old English learning web game\nPrimary request: create a joyful, high-polish 3D cartoon image of \"milk\" (牛奶).\nStyle: bright preschool learning game, chunky rounded shapes, tactile toy-like materials, expressive but simple.\nComposition: centered subject, full object visible, generous padding, dynamic sparkle accents, no text, no watermark.\nColor cue: use #f8f9fa as the main accent and #48cae4 as the secondary accent.\nBackground: clean layered scene with soft depth, suitable for a flashy word card."
+  },
+  {
+    "file": "assets/cards/water.png",
+    "model": "image-2",
+    "prompt": "Use case: scientific-educational\nAsset type: square word-card image for a 3-6 year old English learning web game\nPrimary request: create a joyful, high-polish 3D cartoon image of \"water\" (水).\nStyle: bright preschool learning game, chunky rounded shapes, tactile toy-like materials, expressive but simple.\nComposition: centered subject, full object visible, generous padding, dynamic sparkle accents, no text, no watermark.\nColor cue: use #48cae4 as the main accent and #023e8a as the secondary accent.\nBackground: clean layered scene with soft depth, suitable for a flashy word card."
+  },
+  {
+    "file": "assets/cards/shoes.png",
+    "model": "image-2",
+    "prompt": "Use case: scientific-educational\nAsset type: square word-card image for a 3-6 year old English learning web game\nPrimary request: create a joyful, high-polish 3D cartoon image of \"shoes\" (鞋子).\nStyle: bright preschool learning game, chunky rounded shapes, tactile toy-like materials, expressive but simple.\nComposition: centered subject, full object visible, generous padding, dynamic sparkle accents, no text, no watermark.\nColor cue: use #ff595e as the main accent and #1982c4 as the secondary accent.\nBackground: clean layered scene with soft depth, suitable for a flashy word card."
+  },
+  {
+    "file": "assets/cards/hat.png",
+    "model": "image-2",
+    "prompt": "Use case: scientific-educational\nAsset type: square word-card image for a 3-6 year old English learning web game\nPrimary request: create a joyful, high-polish 3D cartoon image of \"hat\" (帽子).\nStyle: bright preschool learning game, chunky rounded shapes, tactile toy-like materials, expressive but simple.\nComposition: centered subject, full object visible, generous padding, dynamic sparkle accents, no text, no watermark.\nColor cue: use #6a4c93 as the main accent and #ffca3a as the secondary accent.\nBackground: clean layered scene with soft depth, suitable for a flashy word card."
+  },
+  {
+    "file": "assets/cards/teddy.png",
+    "model": "image-2",
+    "prompt": "Use case: scientific-educational\nAsset type: square word-card image for a 3-6 year old English learning web game\nPrimary request: create a joyful, high-polish 3D cartoon image of \"teddy bear\" (泰迪熊).\nStyle: bright preschool learning game, chunky rounded shapes, tactile toy-like materials, expressive but simple.\nComposition: centered subject, full object visible, generous padding, dynamic sparkle accents, no text, no watermark.\nColor cue: use #b08968 as the main accent and #ffc8dd as the secondary accent.\nBackground: clean layered scene with soft depth, suitable for a flashy word card."
+  }
+]

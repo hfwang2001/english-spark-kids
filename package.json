@@ -1,0 +1,16 @@
+{
+  "name": "english-spark-kids",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "vite --host 127.0.0.1",
+    "server": "node server/index.js",
+    "check": "node --check src/app.js && node --check server/index.js",
+    "generate:image-prompts": "node scripts/generate-image-prompts.mjs"
+  },
+  "dependencies": {
+    "vite": "^7.0.0"
+  },
+  "devDependencies": {}
+}
