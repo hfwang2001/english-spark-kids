@@ -233,7 +233,8 @@ async function playCurrentLearning() {
   const current = words[state.learningIndex] || words[0];
   state.isBusy = true;
   render();
-  await speakLearningScript(current);
+  const completed = await speakLearningScript(current);
+  if (!completed || runId !== state.runId) return;
   if (runId !== state.runId) return;
   state.learned.add(current.id);
   render();
@@ -282,14 +283,21 @@ async function listenForWord() {
 }
 
 async function showReward() {
+  const runId = ++state.runId;
   const current = words[state.quizIndex] || words[0];
+  stopSpeech();
   state.correct.add(current.id);
+  state.isBusy = false;
   state.screen = "reward";
   render();
-  await speak(`I am ${current.english}. ${introLine(current)}`, { lang: "en-US", rate: 0.78 });
+  if (runId !== state.runId) return;
+  await speak(`I am ${current.english}. ${introLine(current)}`, { lang: "en-US", rate: 0.78, style: "reward" });
 }
 
 function nextQuiz() {
+  state.runId += 1;
+  stopSpeech();
+  state.isBusy = false;
   state.quizIndex = (state.quizIndex + 1) % words.length;
   state.screen = "quiz";
   state.transcript = "";
@@ -297,8 +305,10 @@ function nextQuiz() {
 }
 
 async function readSummary() {
-  await speak(`Today we learn about ${words.map((word) => word.english).join(", ")}.`, { lang: "en-US", rate: 0.74 });
-  await speak(`今天我们学习了${words.map((word) => word.chinese).join("、")}。`, { lang: "zh-CN", rate: 0.82 });
+  const runId = ++state.runId;
+  if (!await speak(`Today we learn about ${words.map((word) => word.english).join(", ")}.`, { lang: "en-US", rate: 0.74, style: "summary" })) return;
+  if (runId !== state.runId) return;
+  await speak(`今天我们学习了${words.map((word) => word.chinese).join("、")}。`, { lang: "zh-CN", rate: 0.82, style: "summary" });
 }
 
 function introLine(word) {

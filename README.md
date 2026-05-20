@@ -40,3 +40,15 @@ npm run generate:image-prompts
 ```
 
 脚本会生成 `image-2-card-prompts.json`。把生成得到的图片保存到 `assets/cards/<word-id>.png` 后，可把 `src/app.js` 里的 `cardImage()` 从 emoji 占位换成图片路径。
+
+## 字母拼读音频
+
+背单词模式里的“字母拼读”现在支持优先播放本地预生成的 `a-z` 音频，避免在线 TTS 对单个字母读音不稳定。
+
+批量生成字母音频：
+
+```bash
+npm run generate:letter-audio
+```
+
+脚本会把音频和 `manifest.json` 生成到 `public/audio/letters/`。如果这个目录里没有可用字母音频，前端会自动退回到原来的在线 TTS 拼读逻辑。

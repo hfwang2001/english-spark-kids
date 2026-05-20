@@ -36,7 +36,7 @@ const server = http.createServer(async (request, response) => {
 
     const url = new URL(request.url || "/", `http://${request.headers.host}`);
     const path = url.pathname === "/" ? "/index.html" : url.pathname;
-    const filePath = join(root, path);
+    const filePath = resolveStaticPath(path);
     if (!filePath.startsWith(root)) {
       send(response, 403, "Forbidden");
       return;
@@ -59,11 +59,15 @@ async function handleTts(request, response) {
     return;
   }
 
-  const { text, lang } = await readJson(request);
+  const { text, lang, style } = await readJson(request);
   if (!text || typeof text !== "string") {
     sendJson(response, 400, { error: "Missing text." });
     return;
   }
+
+  const languageType = resolveLanguageType(text, lang);
+  const voice = resolveVoice(languageType);
+  const instructions = buildTtsInstructions(text, languageType, style);
 
   const dashscopeResponse = await fetch(`${dashscopeBaseUrl}/api/v1/services/aigc/multimodal-generation/generation`, {
     method: "POST",
@@ -72,12 +76,14 @@ async function handleTts(request, response) {
       "Content-Type": "application/json"
     },
     body: JSON.stringify({
-      model: "qwen3-tts-flash",
+      model: "qwen3-tts-instruct-flash",
       input: {
         text,
-        voice: lang === "zh-CN" ? "Cherry" : "Serena",
-        language_type: lang === "zh-CN" ? "Chinese" : "English"
-      }
+        voice,
+        language_type: languageType
+      },
+      instructions,
+      optimize_instructions: true
     })
   });
 
@@ -197,6 +203,60 @@ function send(response, status, body) {
 function sendJson(response, status, body) {
   response.writeHead(status, { "Content-Type": "application/json; charset=utf-8" });
   response.end(JSON.stringify(body));
+}
+
+function resolveLanguageType(text, lang) {
+  if (lang === "auto") return "Auto";
+  if (containsChinese(text) && /[a-z]/i.test(text)) return "Auto";
+  if (lang === "zh-CN") return "Chinese";
+  if (lang === "en-US") return "English";
+  return containsChinese(text) ? "Chinese" : "English";
+}
+
+function resolveVoice(languageType) {
+  return languageType === "English" ? "Serena" : "Cherry";
+}
+
+function buildTtsInstructions(text, languageType, style = "default") {
+  if (style === "learn-bilingual") {
+    return "Use a warm, lively female preschool teacher voice. Read the English word clearly first, make a brief natural pause, then read the Chinese translation smoothly. Keep the whole phrase short, connected, and encouraging.";
+  }
+
+  if (style === "read-after-me") {
+    return "Use a warm, friendly female teacher voice for preschool children. Say the Chinese part naturally, and speak the English phrase read after me clearly with a light emphasis. Keep it playful and encouraging.";
+  }
+
+  if (style === "reward") {
+    return "Use a cheerful, playful female voice for preschool children. Sound excited, encouraging, and full of positive energy.";
+  }
+
+  if (style === "summary") {
+    return "Use a warm, patient female teacher voice. Speak clearly and naturally, with a gentle classroom rhythm suitable for preschool children.";
+  }
+
+  if (languageType === "Auto") {
+    return "Use a natural, friendly female voice. Handle mixed Chinese and English smoothly, with clear pronunciation and gentle, connected pauses.";
+  }
+
+  if (languageType === "English") {
+    return "Use a clear, friendly female voice. Pronounce English naturally and clearly, with a smooth and connected rhythm.";
+  }
+
+  if (containsChinese(text)) {
+    return "Use a warm, clear female voice. Speak naturally in Chinese with smooth pacing and a gentle, friendly tone.";
+  }
+
+  return "Use a natural, clear female voice with smooth pacing.";
+}
+
+function containsChinese(text) {
+  return /[\u4e00-\u9fa5]/.test(text);
+}
+
+function resolveStaticPath(path) {
+  const directPath = join(root, path);
+  if (existsSync(directPath)) return directPath;
+  return join(root, "public", path);
 }
 
 function loadLocalEnv() {

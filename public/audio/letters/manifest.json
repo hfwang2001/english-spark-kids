@@ -1,0 +1,30 @@
+{
+  "letters": {
+    "a": "/audio/letters/a.mp3",
+    "b": "/audio/letters/b.mp3",
+    "c": "/audio/letters/c.mp3",
+    "d": "/audio/letters/d.mp3",
+    "e": "/audio/letters/e.mp3",
+    "f": "/audio/letters/f.mp3",
+    "g": "/audio/letters/g.mp3",
+    "h": "/audio/letters/h.mp3",
+    "i": "/audio/letters/i.mp3",
+    "j": "/audio/letters/j.mp3",
+    "k": "/audio/letters/k.mp3",
+    "l": "/audio/letters/l.mp3",
+    "m": "/audio/letters/m.mp3",
+    "n": "/audio/letters/n.mp3",
+    "o": "/audio/letters/o.mp3",
+    "p": "/audio/letters/p.mp3",
+    "q": "/audio/letters/q.mp3",
+    "r": "/audio/letters/r.mp3",
+    "s": "/audio/letters/s.mp3",
+    "t": "/audio/letters/t.mp3",
+    "u": "/audio/letters/u.mp3",
+    "v": "/audio/letters/v.mp3",
+    "w": "/audio/letters/w.mp3",
+    "x": "/audio/letters/x.mp3",
+    "y": "/audio/letters/y.mp3",
+    "z": "/audio/letters/z.mp3"
+  }
+}
