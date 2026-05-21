@@ -153,7 +153,8 @@ async function speakWithRemoteTts(text, options, sequenceId) {
       body: JSON.stringify({
         text,
         lang: options.lang || guessLang(text),
-        style: options.style || "default"
+        style: options.style || "default",
+        rate: options.rate
       }),
       signal: controller.signal
     });

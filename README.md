@@ -31,6 +31,29 @@ PORT=4173 DASHSCOPE_API_KEY=你的key npm run server
 
 当前 `/api/tts` 使用 `qwen3-tts-flash`。ASR 建议同样做成后端上传音频代理，浏览器端先保留无 key 的实时演示版本。
 
+## TTS Provider
+
+本项目的 `/api/tts` 现在支持多 provider，通过 `.env` 里的 `TTS_PROVIDER` 切换：
+
+```bash
+TTS_PROVIDER=dashscope
+TTS_PROVIDER=tencent
+TTS_PROVIDER=volcengine
+```
+
+火山引擎接入需要：
+
+```bash
+VOLCENGINE_TTS_APP_ID=
+VOLCENGINE_TTS_API_KEY=
+VOLCENGINE_TTS_CLUSTER=volcano_tts
+VOLCENGINE_TTS_ENDPOINT=https://openspeech.bytedance.com/api/v3/tts/unidirectional
+VOLCENGINE_TTS_RESOURCE_ID=seed-tts-2.0
+VOLCENGINE_TTS_VOICE_TYPE=zh_female_vv_uranus_bigtts
+```
+
+默认火山音色 `zh_female_vv_uranus_bigtts` 是火山官方“豆包语音合成模型 2.0”音色列表里的 `Vivi 2.0`，支持中文、英语，更适合当前双语词卡场景。
+
 ## image-2 词卡图片
 
 生成 20 张 image-2 词卡图片提示词：

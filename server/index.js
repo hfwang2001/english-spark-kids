@@ -1,14 +1,29 @@
 import http from "node:http";
 import { existsSync, readFileSync } from "node:fs";
 import { readFile } from "node:fs/promises";
+import { randomUUID } from "node:crypto";
 import { extname, join, resolve } from "node:path";
+import * as tencentcloud from "tencentcloud-sdk-nodejs-tts";
 
 const root = resolve(process.cwd());
 loadLocalEnv();
 const port = Number(process.env.PORT || 4173);
+const ttsProvider = (process.env.TTS_PROVIDER || "dashscope").trim().toLowerCase();
 const dashscopeKey = process.env.DASHSCOPE_API_KEY;
 const dashscopeBaseUrl = process.env.DASHSCOPE_BASE_URL || "https://dashscope-intl.aliyuncs.com";
 const dashscopeCompatBaseUrl = process.env.DASHSCOPE_COMPAT_BASE_URL || "https://dashscope-intl.aliyuncs.com/compatible-mode/v1";
+const tencentSecretId = process.env.TENCENT_SECRET_ID;
+const tencentSecretKey = process.env.TENCENT_SECRET_KEY;
+const tencentRegion = process.env.TENCENT_TTS_REGION || "ap-guangzhou";
+const tencentEndpoint = process.env.TENCENT_TTS_ENDPOINT || "tts.tencentcloudapi.com";
+const tencentVoiceType = Number(process.env.TENCENT_TTS_VOICE_TYPE || 502001);
+const volcengineAppId = process.env.VOLCENGINE_TTS_APP_ID;
+const volcengineApiKey = process.env.VOLCENGINE_TTS_API_KEY;
+const volcengineCluster = process.env.VOLCENGINE_TTS_CLUSTER || "volcano_tts";
+const volcengineEndpoint = process.env.VOLCENGINE_TTS_ENDPOINT || "https://openspeech.bytedance.com/api/v3/tts/unidirectional";
+const volcengineResourceId = process.env.VOLCENGINE_TTS_RESOURCE_ID || "seed-tts-2.0";
+const volcengineVoiceType = process.env.VOLCENGINE_TTS_VOICE_TYPE || "VC_BV057";
+const TtsClient = tencentcloud.tts.v20190823.Client;
 
 const mime = {
   ".html": "text/html; charset=utf-8",
@@ -54,14 +69,24 @@ server.listen(port, "127.0.0.1", () => {
 });
 
 async function handleTts(request, response) {
-  if (!dashscopeKey) {
-    sendJson(response, 501, { error: "DASHSCOPE_API_KEY is not configured." });
+  const { text, lang, style, rate } = await readJson(request);
+  if (!text || typeof text !== "string") {
+    sendJson(response, 400, { error: "Missing text." });
     return;
   }
 
-  const { text, lang, style } = await readJson(request);
-  if (!text || typeof text !== "string") {
-    sendJson(response, 400, { error: "Missing text." });
+  if (ttsProvider === "volcengine") {
+    await handleVolcengineTts(response, { text, lang, style, rate });
+    return;
+  }
+
+  if (ttsProvider === "tencent") {
+    await handleTencentTts(response, { text, lang, style, rate });
+    return;
+  }
+
+  if (!dashscopeKey) {
+    sendJson(response, 501, { error: "DASHSCOPE_API_KEY is not configured." });
     return;
   }
 
@@ -97,6 +122,112 @@ async function handleTts(request, response) {
   const audio = await fetch(audioUrl);
   response.writeHead(audio.status, { "Content-Type": audio.headers.get("content-type") || "audio/mpeg" });
   response.end(Buffer.from(await audio.arrayBuffer()));
+}
+
+async function handleTencentTts(response, { text, lang, style, rate }) {
+  if (!tencentSecretId || !tencentSecretKey) {
+    sendJson(response, 501, { error: "TENCENT_SECRET_ID or TENCENT_SECRET_KEY is not configured." });
+    return;
+  }
+
+  try {
+    const client = new TtsClient({
+      credential: {
+        secretId: tencentSecretId,
+        secretKey: tencentSecretKey
+      },
+      region: tencentRegion,
+      profile: {
+        httpProfile: {
+          endpoint: tencentEndpoint
+        }
+      }
+    });
+
+    const payload = await client.TextToVoice({
+      Text: text,
+      SessionId: randomUUID(),
+      VoiceType: tencentVoiceType,
+      PrimaryLanguage: resolveTencentPrimaryLanguage(text, lang),
+      Codec: "mp3",
+      SampleRate: 24000,
+      Speed: resolveTencentSpeed(rate),
+      Volume: 0,
+      SegmentRate: 2,
+      EmotionCategory: resolveTencentEmotion(style),
+      EmotionIntensity: 100
+    });
+
+    if (!payload?.Audio) {
+      sendJson(response, 502, { error: "Tencent TTS request failed.", detail: payload || {} });
+      return;
+    }
+
+    response.writeHead(200, { "Content-Type": "audio/mpeg" });
+    response.end(Buffer.from(payload.Audio, "base64"));
+  } catch (error) {
+    sendJson(response, 502, {
+      error: "Tencent TTS request failed.",
+      detail: {
+        message: error?.message || String(error),
+        code: error?.code,
+        requestId: error?.requestId
+      }
+    });
+  }
+}
+
+async function handleVolcengineTts(response, { text, lang, style, rate }) {
+  if (!volcengineAppId || !volcengineApiKey) {
+    sendJson(response, 501, { error: "VOLCENGINE_TTS_APP_ID or VOLCENGINE_TTS_API_KEY is not configured." });
+    return;
+  }
+
+  try {
+    const volcResponse = await fetch(volcengineEndpoint, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        "X-Api-Key": volcengineApiKey,
+        "X-Api-Request-Id": randomUUID(),
+        "X-Api-Resource-Id": volcengineResourceId
+      },
+      body: JSON.stringify({
+        user: {
+          uid: randomUUID()
+        },
+        req_params: {
+          text,
+          speaker: volcengineVoiceType,
+          audio_params: {
+            format: "mp3",
+            sample_rate: 24000
+          },
+          ...withVolcengineAdditions(style)
+        }
+      })
+    });
+
+    if (!volcResponse.ok || !volcResponse.body) {
+      const payload = await volcResponse.text().catch(() => "");
+      sendJson(response, 502, { error: "Volcengine TTS request failed.", detail: payload || { status: volcResponse.status } });
+      return;
+    }
+
+    const payload = await readVolcengineChunkedAudio(volcResponse);
+    if (!payload.ok) {
+      sendJson(response, 502, { error: "Volcengine TTS request failed.", detail: payload.detail });
+      return;
+    }
+
+    response.writeHead(200, { "Content-Type": "audio/mpeg" });
+    response.end(payload.audio);
+  } catch (error) {
+    sendJson(response, 502, {
+      error: "Volcengine TTS request failed.",
+      detail: { message: error?.message || String(error) }
+    });
+  }
 }
 
 async function handleAsr(request, response) {
@@ -247,6 +378,99 @@ function buildTtsInstructions(text, languageType, style = "default") {
   }
 
   return "Use a natural, clear female voice with smooth pacing.";
+}
+
+function resolveTencentPrimaryLanguage(text, lang) {
+  if (lang === "en-US") return 2;
+  if (lang === "zh-CN") return 1;
+  return containsChinese(text) ? 1 : 2;
+}
+
+function resolveTencentSpeed(rate) {
+  if (typeof rate !== "number" || Number.isNaN(rate)) return 0;
+  const speed = (rate - 1) / 0.2;
+  return Math.max(-2, Math.min(6, Number(speed.toFixed(2))));
+}
+
+function resolveTencentEmotion(style = "default") {
+  if (style === "reward") return "happy";
+  return "neutral";
+}
+
+function withVolcengineAdditions(style) {
+  const additions = {};
+  if (style === "learn-bilingual") {
+    additions.context_texts = ["请用温柔、活泼、适合幼儿启蒙老师的语气说话。英文清晰，中文自然，整体连贯。"];
+  } else if (style === "read-after-me") {
+    additions.context_texts = ["请像幼儿英语老师一样鼓励地说这句话，语气亲切自然。"];
+  } else if (style === "reward") {
+    additions.context_texts = ["请用开心、夸奖小朋友的语气说话。"];
+  } else if (style === "summary") {
+    additions.context_texts = ["请用温柔、清晰、课堂总结式的语气说话。"];
+  }
+
+  return Object.keys(additions).length ? { additions: JSON.stringify(additions) } : {};
+}
+
+async function readVolcengineChunkedAudio(response) {
+  const decoder = new TextDecoder();
+  const reader = response.body.getReader();
+  const audioChunks = [];
+  let buffer = "";
+  let lastError = null;
+
+  while (true) {
+    const { value, done } = await reader.read();
+    if (done) break;
+    buffer += decoder.decode(value, { stream: true });
+    const lines = buffer.split(/\r?\n/);
+    buffer = lines.pop() || "";
+
+    for (const rawLine of lines) {
+      const line = rawLine.trim();
+      if (!line) continue;
+      const parsed = safeJsonParse(line);
+      if (!parsed) continue;
+
+      if (parsed.code === 0 && parsed.data) {
+        audioChunks.push(Buffer.from(parsed.data, "base64"));
+        continue;
+      }
+
+      if (parsed.code === 20000000) {
+        return { ok: true, audio: Buffer.concat(audioChunks) };
+      }
+
+      if (typeof parsed.code === "number" && parsed.code !== 0) {
+        lastError = parsed;
+      }
+    }
+  }
+
+  const finalLine = buffer.trim();
+  if (finalLine) {
+    const parsed = safeJsonParse(finalLine);
+    if (parsed?.code === 20000000) {
+      return { ok: true, audio: Buffer.concat(audioChunks) };
+    }
+    if (parsed?.code === 0 && parsed?.data) {
+      audioChunks.push(Buffer.from(parsed.data, "base64"));
+      return { ok: true, audio: Buffer.concat(audioChunks) };
+    }
+    if (parsed && typeof parsed.code === "number" && parsed.code !== 0) {
+      lastError = parsed;
+    }
+  }
+
+  return { ok: false, detail: lastError || { message: "No audio returned from Volcengine." } };
+}
+
+function safeJsonParse(value) {
+  try {
+    return JSON.parse(value);
+  } catch {
+    return null;
+  }
 }
 
 function containsChinese(text) {
