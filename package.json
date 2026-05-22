@@ -11,6 +11,7 @@
     "generate:letter-audio": "node scripts/generate-letter-audio.mjs"
   },
   "dependencies": {
+    "@mediapipe/tasks-vision": "^0.10.35",
     "tencentcloud-sdk-nodejs-tts": "^4.1.203",
     "vite": "^7.0.0"
   }
