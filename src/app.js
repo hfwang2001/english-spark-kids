@@ -1,5 +1,6 @@
 import { words } from "./words.js";
 import { createSlashDetector } from "./pose.js";
+import { createJumpDetector } from "./jump_pose.js";
 import { canListen, isPronunciationMatch, listenOnce, speak, speakLearningScript, stopSpeech } from "./speech.js";
 
 window.APP_CONFIG = {
@@ -18,8 +19,9 @@ const state = {
 };
 
 const PACKAGE_ICONS = ["🎁", "🎀", "📦", "🎉", "🪅", "🎊"];
-const ROUND_DURATION_MS = 30000;
+const ROUND_DURATION_MS = 60000;
 const MAX_REVIEW_WORDS = 6;
+const JUMP_GIFT_SLOTS = [0.18, 0.5, 0.82];
 
 const learnRuntime = {
   detector: null,
@@ -64,6 +66,42 @@ const learnRuntime = {
   debugText: ""
 };
 
+const jumpRuntime = {
+  detector: null,
+  running: false,
+  raf: 0,
+  lastTick: 0,
+  nextWordCursor: 0,
+  gifts: [],
+  giftNodes: new Map(),
+  avatarX: 0.5,
+  targetX: 0.5,
+  avatarY: 0,
+  avatarVelocity: 0,
+  pendingGiftId: null,
+  activeGiftId: null,
+  flashcardWordIndex: null,
+  lessonStatus: "站到镜头前，左右移动小人，再跳起来顶礼包。",
+  detectorStatus: "我会跟着你移动，跳起来就能顶开奖包。",
+  debugText: "",
+  elements: {
+    stage: null,
+    gifts: null,
+    avatar: null,
+    video: null,
+    canvas: null,
+    detectorStatus: null,
+    debug: null,
+    flashcard: null,
+    flashcardCard: null,
+    flashcardEmoji: null,
+    flashcardEnglish: null,
+    flashcardChinese: null,
+    flashcardStatus: null,
+    latest: null
+  }
+};
+
 const app = document.querySelector("#app");
 
 function render() {
@@ -87,8 +125,9 @@ function renderHeader() {
       </button>
       <nav class="tabs" aria-label="游戏步骤">
         ${tabButton("learn", "背单词", "1")}
-        ${tabButton("quiz", "听读闯关", "2")}
-        ${tabButton("summary", "学习总结", "3")}
+        ${tabButton("jump", "跳跳开礼包", "2")}
+        ${tabButton("quiz", "听读闯关", "3")}
+        ${tabButton("summary", "学习总结", "4")}
       </nav>
       <div class="meter" aria-label="学习进度">
         <span style="width:${progress}%"></span>
@@ -105,6 +144,7 @@ function tabButton(screen, label, step) {
 
 function renderScreen() {
   if (state.screen === "learn") return renderLearn();
+  if (state.screen === "jump") return renderJump();
   if (state.screen === "quiz") return renderQuiz();
   if (state.screen === "reward") return renderReward();
   if (state.screen === "summary") return renderSummary();
@@ -148,7 +188,7 @@ function renderLearn() {
         <div>
           <p class="eyebrow">Slice To Learn</p>
           <h1>挥砍礼包舞台</h1>
-          <p class="learn-stage-copy">先玩 30 秒礼包雨。切中后只弹大字和音效，不停下来；时间到了再把这一轮收集到的单词统一学一遍。</p>
+          <p class="learn-stage-copy">先玩 1 分钟礼包雨。切中后只弹大字和音效，不停下来；时间到了再把这一轮收集到的单词统一学一遍。</p>
         </div>
         <div class="learn-scoreboard">
           <span><b id="learn-score-learned">${state.learned.size}</b> 已学会</span>
@@ -220,6 +260,81 @@ function renderLearn() {
       <div class="ribbon-grid learned-preview">
         ${learnedPreview}
       </div>
+    </section>
+  `;
+}
+
+function renderJump() {
+  const currentIndex = jumpRuntime.flashcardWordIndex ?? jumpRuntime.gifts[0]?.wordIndex ?? 0;
+  const current = words[currentIndex] || words[0];
+  const latestWord = words[state.learningIndex]?.english || "-";
+
+  return `
+    <section class="learn-layout jump-learn">
+      <div class="learn-stage-head">
+        <div>
+          <p class="eyebrow">Jump To Learn</p>
+          <h1>跳跳开礼包</h1>
+          <p class="learn-stage-copy">上方有 3 个礼包。小朋友左右移动时，动漫小人会跟着走；一跳起来，就能顶开奖包，打开闪卡并进入跟读。</p>
+        </div>
+        <div class="learn-scoreboard">
+          <span><b>${state.learned.size}</b> 已学会</span>
+          <span><b>${latestWord}</b> 最新顶开</span>
+          <span><b>${words.length}</b> 总词卡</span>
+        </div>
+      </div>
+
+      <section class="jump-stage-panel">
+          <div class="wheel-status ${state.isBusy ? "is-busy" : ""}">
+            <span class="wheel-status-dot"></span>
+            <strong>${state.isBusy ? "跟读中，小人先暂停一下" : "左右移动小人，跳起来顶开上方礼包"}</strong>
+          </div>
+
+          <div id="jump-stage" class="jump-stage">
+            <div id="jump-gifts" class="jump-gifts"></div>
+            <div id="jump-avatar" class="jump-avatar">
+              <div class="jump-avatar-shadow"></div>
+              <div class="jump-avatar-body">
+                <div class="jump-avatar-head">🧒</div>
+                <div class="jump-avatar-torso"></div>
+                <div class="jump-avatar-arm left"></div>
+                <div class="jump-avatar-arm right"></div>
+                <div class="jump-avatar-leg left"></div>
+                <div class="jump-avatar-leg right"></div>
+              </div>
+            </div>
+            <article id="jump-flashcard" class="jump-flashcard">
+              <div id="jump-flashcard-card" class="spotlight-card jump-flashcard-card" data-word="${current.id}" style="--card:${current.color};--accent:${current.accent}">
+                ${cardImage(current, "jump-flashcard-emoji")}
+                <div class="word-meta">
+                  <p class="eyebrow">Gift Card</p>
+                  <h2 id="jump-flashcard-english">${current.english}</h2>
+                  <p id="jump-flashcard-chinese">${current.chinese}</p>
+                  <div id="jump-flashcard-status" class="status">${jumpRuntime.lessonStatus}</div>
+                </div>
+              </div>
+          </div>
+
+          <div class="learn-controls">
+            <button class="secondary" data-action="retry-jump-camera">重新打开摄像头</button>
+          </div>
+
+          <small>玩法提示：不用挥手，只要左右移动身体让小人跟着走，再原地跳一下就能顶开奖包。</small>
+      </section>
+
+      <aside class="vision-panel jump-camera-panel">
+        <div class="vision-frame jump-vision-frame">
+          <video id="jump-video" autoplay muted playsinline></video>
+          <canvas id="jump-overlay"></canvas>
+          <div class="vision-badge">Jump Camera</div>
+        </div>
+        <div class="vision-copy">
+          <p class="eyebrow">Motion Tracking</p>
+          <h2>跟随与跳跃识别</h2>
+          <p id="jump-detector-status" class="status">${jumpRuntime.detectorStatus}</p>
+          <pre id="jump-debug" class="debug-panel">${jumpRuntime.debugText || "等待躯干跟随与跳跃调试数据..."}</pre>
+        </div>
+      </aside>
     </section>
   `;
 }
@@ -322,6 +437,10 @@ function syncScreenRuntime() {
     mountLearnRuntime();
     return;
   }
+  if (state.screen === "jump") {
+    mountJumpRuntime();
+    return;
+  }
 
   learnRuntime.elements = {
     arena: null,
@@ -342,6 +461,23 @@ function syncScreenRuntime() {
     spotlightEnglish: null,
     spotlightChinese: null,
     roundCollection: null
+  };
+
+  jumpRuntime.elements = {
+    stage: null,
+    gifts: null,
+    avatar: null,
+    video: null,
+    canvas: null,
+    detectorStatus: null,
+    debug: null,
+    flashcard: null,
+    flashcardCard: null,
+    flashcardEmoji: null,
+    flashcardEnglish: null,
+    flashcardChinese: null,
+    flashcardStatus: null,
+    latest: null
   };
 }
 
@@ -395,8 +531,54 @@ function ensureLearnRuntime() {
   });
 }
 
+function mountJumpRuntime() {
+  ensureJumpRuntime();
+  jumpRuntime.elements.stage = document.querySelector("#jump-stage");
+  jumpRuntime.elements.gifts = document.querySelector("#jump-gifts");
+  jumpRuntime.elements.avatar = document.querySelector("#jump-avatar");
+  jumpRuntime.elements.video = document.querySelector("#jump-video");
+  jumpRuntime.elements.canvas = document.querySelector("#jump-overlay");
+  jumpRuntime.elements.detectorStatus = document.querySelector("#jump-detector-status");
+  jumpRuntime.elements.debug = document.querySelector("#jump-debug");
+  jumpRuntime.elements.flashcard = document.querySelector("#jump-flashcard");
+  jumpRuntime.elements.flashcardCard = document.querySelector("#jump-flashcard-card");
+  jumpRuntime.elements.flashcardEmoji = document.querySelector("#jump-flashcard-emoji");
+  jumpRuntime.elements.flashcardEnglish = document.querySelector("#jump-flashcard-english");
+  jumpRuntime.elements.flashcardChinese = document.querySelector("#jump-flashcard-chinese");
+  jumpRuntime.elements.flashcardStatus = document.querySelector("#jump-flashcard-status");
+
+  jumpRuntime.detector.attach({
+    video: jumpRuntime.elements.video,
+    canvas: jumpRuntime.elements.canvas,
+    statusElement: jumpRuntime.elements.detectorStatus,
+    debugElement: jumpRuntime.elements.debug
+  });
+
+  ensureJumpGifts();
+  syncJumpScene();
+  syncJumpFlashcard();
+}
+
+function ensureJumpRuntime() {
+  if (jumpRuntime.detector) return;
+  jumpRuntime.detector = createJumpDetector({
+    onStatus: (message) => {
+      jumpRuntime.detectorStatus = message;
+    },
+    onDebug: (message) => {
+      jumpRuntime.debugText = message;
+    },
+    onTrack: (payload) => {
+      handleJumpTrack(payload);
+    },
+    onJump: (payload) => {
+      handleJumpDetected(payload);
+    }
+  });
+}
+
 async function handleAction(action) {
-  if (["home", "learn", "quiz", "summary"].includes(action)) {
+  if (["home", "learn", "jump", "quiz", "summary"].includes(action)) {
     navigateTo(action);
     return;
   }
@@ -408,18 +590,22 @@ async function handleAction(action) {
   if (action === "resume-arena") resumeLearnArena();
   if (action === "review-round") await reviewCurrentRound();
   if (action === "retry-camera") await retryLearnCamera();
+  if (action === "retry-jump-camera") await retryJumpCamera();
 }
 
 function navigateTo(screen) {
   const leavingLearn = state.screen === "learn" && screen !== "learn";
+  const leavingJump = state.screen === "jump" && screen !== "jump";
   stopSpeech();
   state.runId += 1;
   state.isBusy = false;
   state.transcript = "";
   if (leavingLearn) stopLearnExperience();
+  if (leavingJump) stopJumpExperience();
   state.screen = screen;
   render();
   if (screen === "learn") startLearnExperience();
+  if (screen === "jump") startJumpExperience();
 }
 
 async function startLearnExperience() {
@@ -449,6 +635,268 @@ async function retryLearnCamera() {
   if (state.screen !== "learn") return;
   ensureLearnRuntime();
   await learnRuntime.detector.restart();
+}
+
+async function startJumpExperience() {
+  ensureJumpRuntime();
+  mountJumpRuntime();
+  resumeJumpStage();
+  await jumpRuntime.detector.start();
+}
+
+function stopJumpExperience() {
+  pauseJumpStage();
+  jumpRuntime.detector?.stop();
+  jumpRuntime.giftNodes.forEach((node) => node.remove());
+  jumpRuntime.giftNodes.clear();
+  jumpRuntime.gifts = [];
+  jumpRuntime.activeGiftId = null;
+  jumpRuntime.pendingGiftId = null;
+  jumpRuntime.flashcardWordIndex = null;
+  jumpRuntime.avatarX = 0.5;
+  jumpRuntime.targetX = 0.5;
+  jumpRuntime.avatarY = 0;
+  jumpRuntime.avatarVelocity = 0;
+}
+
+async function retryJumpCamera() {
+  if (state.screen !== "jump") return;
+  ensureJumpRuntime();
+  await jumpRuntime.detector.restart();
+}
+
+function resumeJumpStage() {
+  if (state.screen !== "jump") return;
+  ensureJumpGifts();
+  jumpRuntime.detector?.setPaused(state.isBusy);
+  if (jumpRuntime.running) return;
+  jumpRuntime.running = true;
+  jumpRuntime.lastTick = performance.now();
+  tickJumpStage(jumpRuntime.lastTick);
+}
+
+function pauseJumpStage() {
+  jumpRuntime.running = false;
+  if (jumpRuntime.raf) {
+    window.cancelAnimationFrame(jumpRuntime.raf);
+    jumpRuntime.raf = 0;
+  }
+  jumpRuntime.lastTick = 0;
+}
+
+function tickJumpStage(timestamp) {
+  if (!jumpRuntime.running) return;
+  const delta = Math.min(0.033, jumpRuntime.lastTick ? (timestamp - jumpRuntime.lastTick) / 1000 : 0);
+  jumpRuntime.lastTick = timestamp;
+
+  jumpRuntime.avatarX += (jumpRuntime.targetX - jumpRuntime.avatarX) * Math.min(1, delta * 8);
+
+  if (jumpRuntime.avatarY > 0 || jumpRuntime.avatarVelocity > 0) {
+    jumpRuntime.avatarY += jumpRuntime.avatarVelocity * delta;
+    jumpRuntime.avatarVelocity -= 4.6 * delta;
+
+    if (jumpRuntime.pendingGiftId && jumpRuntime.avatarY > 0.17) {
+      const gift = jumpRuntime.gifts.find((item) => item.id === jumpRuntime.pendingGiftId);
+      if (gift?.state === "closed") {
+        void openJumpGift(gift);
+      }
+    }
+
+    if (jumpRuntime.avatarY <= 0) {
+      jumpRuntime.avatarY = 0;
+      jumpRuntime.avatarVelocity = 0;
+      jumpRuntime.pendingGiftId = null;
+    }
+  }
+
+  syncJumpScene();
+  jumpRuntime.raf = window.requestAnimationFrame((nextTimestamp) => tickJumpStage(nextTimestamp));
+}
+
+function ensureJumpGifts() {
+  if (jumpRuntime.gifts.length) return;
+  jumpRuntime.gifts = JUMP_GIFT_SLOTS.map((x, slot) => createJumpGift(slot, x));
+}
+
+function createJumpGift(slot, x) {
+  const wordIndex = jumpRuntime.nextWordCursor % words.length;
+  jumpRuntime.nextWordCursor += 1;
+  return {
+    id: `jump-gift-${slot}`,
+    slot,
+    x,
+    wordIndex,
+    state: "closed",
+    openedAt: 0
+  };
+}
+
+function replaceJumpGiftWord(gift) {
+  gift.wordIndex = jumpRuntime.nextWordCursor % words.length;
+  jumpRuntime.nextWordCursor += 1;
+  gift.state = "closed";
+  gift.openedAt = 0;
+}
+
+function handleJumpTrack(payload) {
+  if (state.screen !== "jump") return;
+  jumpRuntime.targetX = clamp(payload.x, 0.12, 0.88);
+}
+
+function handleJumpDetected(payload) {
+  if (state.screen !== "jump" || state.isBusy) return;
+  jumpRuntime.targetX = clamp(payload.x, 0.12, 0.88);
+  if (jumpRuntime.avatarY > 0.04) return;
+  jumpRuntime.avatarVelocity = 1.45;
+  jumpRuntime.pendingGiftId = findJumpTargetGiftId(jumpRuntime.targetX);
+}
+
+function findJumpTargetGiftId(targetX) {
+  let bestGift = null;
+  let bestDistance = Infinity;
+  for (const gift of jumpRuntime.gifts) {
+    if (gift.state !== "closed") continue;
+    const distanceToGift = Math.abs(gift.x - targetX);
+    if (distanceToGift < 0.18 && distanceToGift < bestDistance) {
+      bestGift = gift;
+      bestDistance = distanceToGift;
+    }
+  }
+  return bestGift?.id || null;
+}
+
+async function openJumpGift(gift) {
+  if (state.screen !== "jump" || state.isBusy || gift.state !== "closed") return;
+  const runId = ++state.runId;
+  const word = words[gift.wordIndex];
+  gift.state = "open";
+  gift.openedAt = performance.now();
+  jumpRuntime.activeGiftId = gift.id;
+  jumpRuntime.pendingGiftId = null;
+  jumpRuntime.flashcardWordIndex = gift.wordIndex;
+  jumpRuntime.lessonStatus = `${word.english}，${word.chinese}`;
+  jumpRuntime.detector?.setPaused(true);
+  state.learningIndex = gift.wordIndex;
+  state.isBusy = true;
+  syncJumpScene();
+  syncJumpFlashcard();
+
+  await wait(260);
+  if (runId !== state.runId || state.screen !== "jump") return;
+
+  try {
+    await speak(word.english, { lang: "en-US", rate: 0.8, style: "jump-hit", pause: 80 });
+    if (runId !== state.runId || state.screen !== "jump") return;
+    jumpRuntime.lessonStatus = `跟我读：${word.english}`;
+    syncJumpFlashcard();
+    await speak(`Now say ${word.english}`, { lang: "en-US", rate: 0.78, style: "jump-repeat" });
+    if (runId !== state.runId || state.screen !== "jump") return;
+
+    if (!canListen()) {
+      jumpRuntime.lessonStatus = "这个浏览器不支持录音，我们先继续下一次跳跃。";
+      syncJumpFlashcard();
+      await wait(900);
+    } else {
+      jumpRuntime.lessonStatus = `请大声读出 ${word.english}`;
+      syncJumpFlashcard();
+      const transcript = await listenOnce();
+      if (runId !== state.runId || state.screen !== "jump") return;
+      const ok = isPronunciationMatch(transcript, word.english);
+      jumpRuntime.lessonStatus = ok ? `太棒了，你读对了：${transcript}` : `我听到：${transcript || "没有听清"}，下次再试一次。`;
+      if (ok) {
+        state.learned.add(word.id);
+        state.correct.add(word.id);
+        await speak("Great job!", { lang: "en-US", rate: 0.82, style: "reward" });
+      } else {
+        await speak("再跳一次，我们继续。", { lang: "zh-CN", rate: 0.84, style: "jump-encourage" });
+      }
+    }
+  } catch (error) {
+    if (runId !== state.runId || state.screen !== "jump") return;
+    jumpRuntime.lessonStatus = error?.message || "这次没有成功读出来，我们继续下一轮。";
+    syncJumpFlashcard();
+    await wait(900);
+  }
+
+  if (runId !== state.runId || state.screen !== "jump") return;
+  replaceJumpGiftWord(gift);
+  jumpRuntime.activeGiftId = null;
+  jumpRuntime.flashcardWordIndex = null;
+  jumpRuntime.lessonStatus = "继续左右移动，再跳起来顶下一个礼包。";
+  state.isBusy = false;
+  jumpRuntime.detector?.setPaused(false);
+  syncJumpScene();
+  syncJumpFlashcard();
+}
+
+function syncJumpScene() {
+  const giftsContainer = jumpRuntime.elements.gifts;
+  if (giftsContainer) {
+    const presentIds = new Set();
+    for (const gift of jumpRuntime.gifts) {
+      presentIds.add(gift.id);
+      let node = jumpRuntime.giftNodes.get(gift.id);
+      if (!node) {
+        node = document.createElement("article");
+        node.className = "jump-gift";
+        node.innerHTML = `
+          <div class="jump-gift-core">
+            <span class="jump-gift-icon"></span>
+            <b class="jump-gift-title"></b>
+            <small class="jump-gift-sub"></small>
+          </div>
+        `;
+        giftsContainer.appendChild(node);
+        jumpRuntime.giftNodes.set(gift.id, node);
+      }
+      const word = words[gift.wordIndex];
+      node.className = `jump-gift is-${gift.state}`;
+      node.style.left = `${gift.x * 100}%`;
+      node.style.setProperty("--gift", word.color);
+      node.style.setProperty("--accent", word.accent);
+      node.querySelector(".jump-gift-icon").textContent = gift.state === "open" ? word.emoji : PACKAGE_ICONS[gift.slot % PACKAGE_ICONS.length];
+      node.querySelector(".jump-gift-title").textContent = gift.state === "open" ? word.english : "Jump";
+      node.querySelector(".jump-gift-sub").textContent = gift.state === "open" ? word.chinese : "Hit me";
+    }
+
+    for (const [id, node] of Array.from(jumpRuntime.giftNodes.entries())) {
+      if (presentIds.has(id)) continue;
+      node.remove();
+      jumpRuntime.giftNodes.delete(id);
+    }
+  }
+
+  const avatar = jumpRuntime.elements.avatar;
+  const stage = jumpRuntime.elements.stage;
+  if (avatar && stage) {
+    const height = Math.max(320, stage.clientHeight || 0);
+    avatar.style.left = `${jumpRuntime.avatarX * 100}%`;
+    avatar.style.transform = `translate(-50%, ${-jumpRuntime.avatarY * height}px)`;
+    avatar.classList.toggle("is-jumping", jumpRuntime.avatarY > 0.02);
+  }
+}
+
+function syncJumpFlashcard() {
+  const flashcard = jumpRuntime.elements.flashcard;
+  const wordIndex = jumpRuntime.flashcardWordIndex;
+  if (!flashcard || wordIndex == null) {
+    if (flashcard) flashcard.classList.remove("is-visible");
+    return;
+  }
+
+  const word = words[wordIndex];
+  flashcard.classList.add("is-visible");
+  if (jumpRuntime.elements.flashcardCard) {
+    jumpRuntime.elements.flashcardCard.dataset.word = word.id;
+    jumpRuntime.elements.flashcardCard.style.setProperty("--card", word.color);
+    jumpRuntime.elements.flashcardCard.style.setProperty("--accent", word.accent);
+    const frame = jumpRuntime.elements.flashcardCard.querySelector(".image-frame");
+    if (frame) frame.setAttribute("aria-label", `${word.english} image`);
+  }
+  if (jumpRuntime.elements.flashcardEmoji) jumpRuntime.elements.flashcardEmoji.textContent = word.emoji;
+  if (jumpRuntime.elements.flashcardEnglish) jumpRuntime.elements.flashcardEnglish.textContent = word.english;
+  if (jumpRuntime.elements.flashcardChinese) jumpRuntime.elements.flashcardChinese.textContent = word.chinese;
+  if (jumpRuntime.elements.flashcardStatus) jumpRuntime.elements.flashcardStatus.textContent = jumpRuntime.lessonStatus;
 }
 
 function resumeLearnArena() {
@@ -965,6 +1413,10 @@ function playHitWord(word) {
 
 function wait(ms) {
   return new Promise((resolve) => window.setTimeout(resolve, ms));
+}
+
+function clamp(value, min, max) {
+  return Math.min(max, Math.max(min, value));
 }
 
 render();

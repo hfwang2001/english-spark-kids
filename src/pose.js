@@ -1,4 +1,5 @@
 import { FilesetResolver, PoseLandmarker } from "@mediapipe/tasks-vision";
+import { acquireSharedCamera, releaseSharedCamera } from "./camera.js";
 
 const POSE_WASM_URL = "https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@0.10.35/wasm";
 const POSE_MODEL_URL = "https://storage.googleapis.com/mediapipe-models/pose_landmarker/pose_landmarker_lite/float16/1/pose_landmarker_lite.task";
@@ -36,6 +37,7 @@ class SlashDetector {
     this.latestStatus = "摄像头准备中...";
     this.latestDebug = "";
     this.state = createDetectorState();
+    this.cameraOwner = `slash-${Math.random().toString(36).slice(2)}`;
   }
 
   attach({ video, canvas, statusElement, debugElement }) {
@@ -76,7 +78,7 @@ class SlashDetector {
       this.animationFrame = 0;
     }
     if (this.stream) {
-      this.stream.getTracks().forEach((track) => track.stop());
+      releaseSharedCamera(this.cameraOwner);
       this.stream = null;
     }
     if (this.video) {
@@ -130,15 +132,7 @@ class SlashDetector {
       return;
     }
 
-    const stream = await navigator.mediaDevices.getUserMedia({
-      audio: false,
-      video: {
-        facingMode: "user",
-        width: { ideal: 1280 },
-        height: { ideal: 720 },
-        aspectRatio: { ideal: 16 / 9 }
-      }
-    });
+    const stream = await acquireSharedCamera(this.cameraOwner);
     this.stream = stream;
     this.syncMountedMedia();
     if (!this.video) return;

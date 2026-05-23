@@ -283,12 +283,31 @@ button:disabled {
   align-items: start;
 }
 
+.jump-learn {
+  align-items: start;
+}
+
 .learn-stage-head,
 .learn-arcade-grid,
 .learn-spotlight,
 .round-collection-panel,
 .learned-preview {
   width: min(100%, 1180px);
+}
+
+.jump-stage-panel {
+  width: min(100%, 1380px);
+  display: grid;
+  gap: 18px;
+  padding: 20px;
+  border-radius: 32px;
+  background:
+    linear-gradient(180deg, rgba(255, 255, 255, 0.94), rgba(237, 248, 250, 0.92));
+  box-shadow: 0 30px 70px rgba(17, 51, 58, 0.12);
+}
+
+.jump-arcade-grid {
+  align-items: start;
 }
 
 .wheel-panel > small,
@@ -465,6 +484,288 @@ button:disabled {
   width: 100%;
   height: 100%;
   pointer-events: none;
+}
+
+.jump-stage {
+  position: relative;
+  min-height: 720px;
+  overflow: hidden;
+  border-radius: 34px;
+  background:
+    radial-gradient(circle at 50% 8%, rgba(126, 249, 255, 0.18), transparent 24%),
+    radial-gradient(circle at 20% 20%, rgba(255, 209, 102, 0.12), transparent 20%),
+    linear-gradient(180deg, #0a1630 0%, #163b59 58%, #2f8f7e 58%, #4eb58f 100%);
+  box-shadow:
+    inset 0 0 0 1px rgba(126, 249, 255, 0.16),
+    0 36px 70px rgba(17, 51, 58, 0.18);
+}
+
+.jump-camera-panel {
+  width: min(100%, 1380px);
+  align-self: stretch;
+}
+
+.jump-vision-frame {
+  aspect-ratio: 16 / 8;
+}
+
+.jump-stage::before {
+  content: "";
+  position: absolute;
+  inset: 0 0 auto;
+  height: 58%;
+  background:
+    radial-gradient(circle at 12% 18%, rgba(255, 255, 255, 0.18), transparent 10%),
+    radial-gradient(circle at 28% 10%, rgba(255, 255, 255, 0.16), transparent 8%),
+    radial-gradient(circle at 74% 14%, rgba(255, 255, 255, 0.2), transparent 11%),
+    radial-gradient(circle at 88% 8%, rgba(255, 255, 255, 0.14), transparent 8%);
+  pointer-events: none;
+}
+
+.jump-stage::after {
+  content: "";
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: 22%;
+  height: 4px;
+  background: linear-gradient(90deg, rgba(255,255,255,0), rgba(255,255,255,0.5), rgba(255,255,255,0));
+  opacity: 0.35;
+}
+
+.jump-gifts {
+  position: absolute;
+  inset: 0;
+  z-index: 3;
+}
+
+.jump-gift {
+  position: absolute;
+  top: 13%;
+  width: 164px;
+  height: 164px;
+  transform: translateX(-50%);
+  will-change: transform;
+}
+
+.jump-gift-core {
+  height: 100%;
+  display: grid;
+  place-items: center;
+  align-content: center;
+  gap: 6px;
+  padding: 12px;
+  border-radius: 36px;
+  color: #102f36;
+  background:
+    linear-gradient(180deg, color-mix(in srgb, var(--gift), white 20%), color-mix(in srgb, var(--accent), white 8%));
+  box-shadow:
+    0 24px 30px rgba(17, 51, 58, 0.24),
+    inset 0 0 0 2px rgba(255, 255, 255, 0.82);
+}
+
+.jump-gift::before,
+.jump-gift::after {
+  content: "";
+  position: absolute;
+  pointer-events: none;
+}
+
+.jump-gift::before {
+  left: 50%;
+  top: 10px;
+  width: 24px;
+  height: calc(100% - 20px);
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.48);
+  transform: translateX(-50%);
+}
+
+.jump-gift::after {
+  top: 50%;
+  left: 8px;
+  right: 8px;
+  height: 22px;
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.42);
+  transform: translateY(-50%);
+}
+
+.jump-gift-icon,
+.jump-gift-title,
+.jump-gift-sub {
+  position: relative;
+  z-index: 1;
+}
+
+.jump-gift-icon {
+  font-size: 54px;
+  line-height: 1;
+}
+
+.jump-gift-title {
+  font-size: 18px;
+  font-weight: 1000;
+}
+
+.jump-gift-sub {
+  color: rgba(16, 47, 54, 0.72);
+  font-size: 13px;
+  font-weight: 900;
+}
+
+.jump-gift.is-open {
+  animation: jumpGiftOpen 0.7s ease-out both;
+  z-index: 6;
+}
+
+@keyframes jumpGiftOpen {
+  0% {
+    transform: translateX(-50%) translateY(0) scale(1);
+  }
+  35% {
+    transform: translateX(-50%) translateY(-10px) scale(1.12) rotate(-4deg);
+  }
+  100% {
+    transform: translateX(-50%) translateY(-4px) scale(1.04);
+  }
+}
+
+.jump-avatar {
+  position: absolute;
+  left: 50%;
+  bottom: 20%;
+  z-index: 4;
+  width: 176px;
+  height: 250px;
+  transform: translate(-50%, 0);
+  will-change: transform, left;
+}
+
+.jump-avatar-shadow {
+  position: absolute;
+  left: 50%;
+  bottom: -2px;
+  width: 128px;
+  height: 24px;
+  border-radius: 50%;
+  background: rgba(5, 10, 18, 0.28);
+  transform: translateX(-50%);
+  filter: blur(3px);
+}
+
+.jump-avatar-body {
+  position: absolute;
+  left: 50%;
+  bottom: 12px;
+  width: 124px;
+  height: 218px;
+  transform: translateX(-50%);
+}
+
+.jump-avatar-head {
+  position: absolute;
+  left: 50%;
+  top: 0;
+  width: 86px;
+  height: 86px;
+  display: grid;
+  place-items: center;
+  border-radius: 50%;
+  background: linear-gradient(180deg, #fff7d8, #ffe2b8);
+  box-shadow: 0 14px 22px rgba(17, 51, 58, 0.18);
+  font-size: 46px;
+  transform: translateX(-50%);
+}
+
+.jump-avatar-torso {
+  position: absolute;
+  left: 50%;
+  top: 74px;
+  width: 94px;
+  height: 82px;
+  border-radius: 34px 34px 28px 28px;
+  background: linear-gradient(180deg, #ef476f, #d63259);
+  box-shadow: 0 16px 24px rgba(17, 51, 58, 0.18);
+  transform: translateX(-50%);
+}
+
+.jump-avatar-arm,
+.jump-avatar-leg {
+  position: absolute;
+  width: 18px;
+  border-radius: 999px;
+  background: #102f36;
+}
+
+.jump-avatar-arm {
+  top: 92px;
+  height: 74px;
+}
+
+.jump-avatar-arm.left {
+  left: 12px;
+  transform: rotate(18deg);
+}
+
+.jump-avatar-arm.right {
+  right: 12px;
+  transform: rotate(-18deg);
+}
+
+.jump-avatar-leg {
+  top: 146px;
+  height: 90px;
+}
+
+.jump-avatar-leg.left {
+  left: 42px;
+  transform: rotate(8deg);
+}
+
+.jump-avatar-leg.right {
+  right: 42px;
+  transform: rotate(-8deg);
+}
+
+.jump-avatar.is-jumping .jump-avatar-shadow {
+  transform: translateX(-50%) scale(0.84);
+  opacity: 0.52;
+}
+
+.jump-avatar.is-jumping .jump-avatar-body {
+  animation: jumpAvatarPose 0.3s ease-out infinite alternate;
+}
+
+@keyframes jumpAvatarPose {
+  from {
+    transform: translateX(-50%) rotate(-2deg);
+  }
+  to {
+    transform: translateX(-50%) rotate(2deg);
+  }
+}
+
+.jump-flashcard {
+  position: absolute;
+  inset: 0;
+  z-index: 8;
+  display: grid;
+  place-items: center;
+  padding: 28px;
+  opacity: 0;
+  pointer-events: none;
+  background: rgba(8, 15, 28, 0.34);
+  transition: opacity 0.24s ease;
+}
+
+.jump-flashcard.is-visible {
+  opacity: 1;
+}
+
+.jump-flashcard-card {
+  width: min(100%, 980px);
+  min-height: 420px;
 }
 
 .hit-popup {
