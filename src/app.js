@@ -21,7 +21,7 @@ const state = {
 const PACKAGE_ICONS = ["🎁", "🎀", "📦", "🎉", "🪅", "🎊"];
 const ROUND_DURATION_MS = 60000;
 const MAX_REVIEW_WORDS = 6;
-const JUMP_GIFT_SLOTS = [0.18, 0.5, 0.82];
+const JUMP_MAX_LETTERS = 6;
 
 const learnRuntime = {
   detector: null,
@@ -72,6 +72,11 @@ const jumpRuntime = {
   raf: 0,
   lastTick: 0,
   nextWordCursor: 0,
+  currentWordIndex: null,
+  currentSpelling: "",
+  currentLetterIndex: 0,
+  promptTimer: 0,
+  promptVersion: 0,
   gifts: [],
   giftNodes: new Map(),
   avatarX: 0.5,
@@ -101,6 +106,13 @@ const jumpRuntime = {
     latest: null
   }
 };
+
+const jumpWordPool = words
+  .map((word, index) => ({
+    index,
+    spelling: normalizeJumpWord(word.english)
+  }))
+  .filter((entry) => entry.spelling && entry.spelling.length <= JUMP_MAX_LETTERS);
 
 const app = document.querySelector("#app");
 
@@ -265,9 +277,11 @@ function renderLearn() {
 }
 
 function renderJump() {
-  const currentIndex = jumpRuntime.flashcardWordIndex ?? jumpRuntime.gifts[0]?.wordIndex ?? 0;
+  const currentIndex = jumpRuntime.flashcardWordIndex ?? jumpRuntime.currentWordIndex ?? 0;
   const current = words[currentIndex] || words[0];
-  const latestWord = words[state.learningIndex]?.english || "-";
+  const latestWord = jumpRuntime.currentWordIndex == null ? "-" : words[jumpRuntime.currentWordIndex]?.english || "-";
+  const targetLetter = getCurrentJumpTargetLetter()?.toUpperCase() || "-";
+  const progressText = formatJumpProgress();
 
   return `
     <section class="learn-layout jump-learn">
@@ -275,12 +289,13 @@ function renderJump() {
         <div>
           <p class="eyebrow">Jump To Learn</p>
           <h1>跳跳开礼包</h1>
-          <p class="learn-stage-copy">上方有 3 个礼包。小朋友左右移动时，动漫小人会跟着走；一跳起来，就能顶开奖包，打开闪卡并进入跟读。</p>
+          <p class="learn-stage-copy">上方每个礼包代表一个字母。系统会按顺序播报字母，小朋友跳起来顶对对应礼包，直到把整个单词拼出来，再进入闪卡学习。</p>
         </div>
         <div class="learn-scoreboard">
           <span><b>${state.learned.size}</b> 已学会</span>
-          <span><b>${latestWord}</b> 最新顶开</span>
-          <span><b>${words.length}</b> 总词卡</span>
+          <span><b>${latestWord}</b> 当前单词</span>
+          <span><b>${targetLetter}</b> 当前字母</span>
+          <span><b>${progressText}</b> 拼写进度</span>
         </div>
       </div>
 
@@ -313,6 +328,7 @@ function renderJump() {
                   <div id="jump-flashcard-status" class="status">${jumpRuntime.lessonStatus}</div>
                 </div>
               </div>
+            </article>
           </div>
 
           <div class="learn-controls">
@@ -554,7 +570,7 @@ function mountJumpRuntime() {
     debugElement: jumpRuntime.elements.debug
   });
 
-  ensureJumpGifts();
+  ensureJumpWordRound();
   syncJumpScene();
   syncJumpFlashcard();
 }
@@ -647,12 +663,16 @@ async function startJumpExperience() {
 function stopJumpExperience() {
   pauseJumpStage();
   jumpRuntime.detector?.stop();
+  cancelJumpPrompt();
   jumpRuntime.giftNodes.forEach((node) => node.remove());
   jumpRuntime.giftNodes.clear();
   jumpRuntime.gifts = [];
   jumpRuntime.activeGiftId = null;
   jumpRuntime.pendingGiftId = null;
   jumpRuntime.flashcardWordIndex = null;
+  jumpRuntime.currentWordIndex = null;
+  jumpRuntime.currentSpelling = "";
+  jumpRuntime.currentLetterIndex = 0;
   jumpRuntime.avatarX = 0.5;
   jumpRuntime.targetX = 0.5;
   jumpRuntime.avatarY = 0;
@@ -667,7 +687,7 @@ async function retryJumpCamera() {
 
 function resumeJumpStage() {
   if (state.screen !== "jump") return;
-  ensureJumpGifts();
+  ensureJumpWordRound();
   jumpRuntime.detector?.setPaused(state.isBusy);
   if (jumpRuntime.running) return;
   jumpRuntime.running = true;
@@ -698,7 +718,7 @@ function tickJumpStage(timestamp) {
     if (jumpRuntime.pendingGiftId && jumpRuntime.avatarY > 0.17) {
       const gift = jumpRuntime.gifts.find((item) => item.id === jumpRuntime.pendingGiftId);
       if (gift?.state === "closed") {
-        void openJumpGift(gift);
+        void handleJumpGiftSelection(gift);
       }
     }
 
@@ -713,29 +733,9 @@ function tickJumpStage(timestamp) {
   jumpRuntime.raf = window.requestAnimationFrame((nextTimestamp) => tickJumpStage(nextTimestamp));
 }
 
-function ensureJumpGifts() {
-  if (jumpRuntime.gifts.length) return;
-  jumpRuntime.gifts = JUMP_GIFT_SLOTS.map((x, slot) => createJumpGift(slot, x));
-}
-
-function createJumpGift(slot, x) {
-  const wordIndex = jumpRuntime.nextWordCursor % words.length;
-  jumpRuntime.nextWordCursor += 1;
-  return {
-    id: `jump-gift-${slot}`,
-    slot,
-    x,
-    wordIndex,
-    state: "closed",
-    openedAt: 0
-  };
-}
-
-function replaceJumpGiftWord(gift) {
-  gift.wordIndex = jumpRuntime.nextWordCursor % words.length;
-  jumpRuntime.nextWordCursor += 1;
-  gift.state = "closed";
-  gift.openedAt = 0;
+function ensureJumpWordRound() {
+  if (jumpRuntime.currentWordIndex != null && jumpRuntime.gifts.length) return;
+  setupNextJumpWord();
 }
 
 function handleJumpTrack(payload) {
@@ -755,7 +755,7 @@ function findJumpTargetGiftId(targetX) {
   let bestGift = null;
   let bestDistance = Infinity;
   for (const gift of jumpRuntime.gifts) {
-    if (gift.state !== "closed") continue;
+    if (gift.state === "used") continue;
     const distanceToGift = Math.abs(gift.x - targetX);
     if (distanceToGift < 0.18 && distanceToGift < bestDistance) {
       bestGift = gift;
@@ -765,27 +765,134 @@ function findJumpTargetGiftId(targetX) {
   return bestGift?.id || null;
 }
 
-async function openJumpGift(gift) {
-  if (state.screen !== "jump" || state.isBusy || gift.state !== "closed") return;
-  const runId = ++state.runId;
-  const word = words[gift.wordIndex];
-  gift.state = "open";
-  gift.openedAt = performance.now();
-  jumpRuntime.activeGiftId = gift.id;
+async function handleJumpGiftSelection(gift) {
+  if (state.screen !== "jump" || state.isBusy || !gift) return;
   jumpRuntime.pendingGiftId = null;
-  jumpRuntime.flashcardWordIndex = gift.wordIndex;
-  jumpRuntime.lessonStatus = `${word.english}，${word.chinese}`;
-  jumpRuntime.detector?.setPaused(true);
-  state.learningIndex = gift.wordIndex;
-  state.isBusy = true;
+  jumpRuntime.activeGiftId = gift.id;
+  const expectedLetter = getCurrentJumpTargetLetter();
+  if (!expectedLetter) return;
+
+  if (gift.letter !== expectedLetter) {
+    jumpRuntime.lessonStatus = `还不是 ${gift.letter.toUpperCase()}，继续找 ${expectedLetter.toUpperCase()}。`;
+    gift.state = "wrong";
+    gift.openedAt = performance.now();
+    syncJumpScene();
+    queueJumpLetterPrompt(260);
+    return;
+  }
+
+  gift.state = "correct";
+  gift.openedAt = performance.now();
+  jumpRuntime.lessonStatus = `答对了，这是 ${gift.letter.toUpperCase()}。`;
+  jumpRuntime.currentLetterIndex += 1;
+  syncJumpScene();
+
+  if (jumpRuntime.currentLetterIndex < jumpRuntime.currentSpelling.length) {
+    queueJumpLetterPrompt(260);
+    return;
+  }
+
+  await completeJumpSpellingWord();
+}
+
+function setupNextJumpWord() {
+  const entry = jumpWordPool[jumpRuntime.nextWordCursor % jumpWordPool.length] || jumpWordPool[0];
+  jumpRuntime.nextWordCursor = (jumpRuntime.nextWordCursor + 1) % Math.max(1, jumpWordPool.length);
+  jumpRuntime.currentWordIndex = entry.index;
+  jumpRuntime.currentSpelling = entry.spelling;
+  jumpRuntime.currentLetterIndex = 0;
+  jumpRuntime.flashcardWordIndex = null;
+  jumpRuntime.activeGiftId = null;
+  jumpRuntime.pendingGiftId = null;
+  jumpRuntime.lessonStatus = `先听字母，再跳起来顶对礼包。`;
+
+  const uniqueLetters = shuffleLetters(Array.from(new Set(entry.spelling.split(""))));
+  const slots = computeJumpGiftSlots(uniqueLetters.length);
+  jumpRuntime.gifts = uniqueLetters.map((letter, index) => ({
+    id: `jump-gift-${index}-${letter}`,
+    slot: index,
+    x: slots[index],
+    letter,
+    state: "closed",
+    openedAt: 0
+  }));
+
+  jumpRuntime.giftNodes.forEach((node) => node.remove());
+  jumpRuntime.giftNodes.clear();
+  syncJumpScene();
+  syncJumpFlashcard();
+  queueJumpLetterPrompt(420);
+}
+
+function queueJumpLetterPrompt(delay = 0) {
+  cancelJumpPrompt();
+  resetJumpGiftVisualStates();
+  const version = ++jumpRuntime.promptVersion;
+  jumpRuntime.promptTimer = window.setTimeout(() => {
+    jumpRuntime.promptTimer = 0;
+    void playJumpLetterPrompt(version);
+  }, delay);
+}
+
+async function playJumpLetterPrompt(version) {
+  if (state.screen !== "jump" || state.isBusy) return;
+  if (version !== jumpRuntime.promptVersion) return;
+  const letter = getCurrentJumpTargetLetter();
+  if (!letter) return;
+
+  jumpRuntime.lessonStatus = `请跳起来顶字母 ${letter.toUpperCase()}`;
   syncJumpScene();
   syncJumpFlashcard();
 
-  await wait(260);
+  try {
+    await speak(repeatJumpLetter(letter), {
+      lang: "en-US",
+      rate: 0.72,
+      style: "jump-letter",
+      pause: 80
+    });
+  } catch {}
+
+  if (state.screen !== "jump" || state.isBusy) return;
+  if (version !== jumpRuntime.promptVersion) return;
+  if (getCurrentJumpTargetLetter() !== letter) return;
+  queueJumpLetterPrompt(1100);
+}
+
+function cancelJumpPrompt() {
+  jumpRuntime.promptVersion += 1;
+  if (jumpRuntime.promptTimer) {
+    window.clearTimeout(jumpRuntime.promptTimer);
+    jumpRuntime.promptTimer = 0;
+  }
+}
+
+function resetJumpGiftVisualStates() {
+  for (const gift of jumpRuntime.gifts) {
+    gift.state = "closed";
+    gift.openedAt = 0;
+  }
+  syncJumpScene();
+}
+
+async function completeJumpSpellingWord() {
+  if (state.screen !== "jump" || state.isBusy || jumpRuntime.currentWordIndex == null) return;
+  cancelJumpPrompt();
+  const runId = ++state.runId;
+  const word = words[jumpRuntime.currentWordIndex];
+  jumpRuntime.flashcardWordIndex = jumpRuntime.currentWordIndex;
+  jumpRuntime.lessonStatus = `${word.english}，${word.chinese}`;
+  state.learningIndex = jumpRuntime.currentWordIndex;
+  state.isBusy = true;
+  jumpRuntime.detector?.setPaused(true);
+  syncJumpScene();
+  syncJumpFlashcard();
+
+  await wait(280);
   if (runId !== state.runId || state.screen !== "jump") return;
 
   try {
-    await speak(word.english, { lang: "en-US", rate: 0.8, style: "jump-hit", pause: 80 });
+    await speak(word.english, { lang: "en-US", rate: 0.8, style: "jump-hit", pause: 100 });
     if (runId !== state.runId || state.screen !== "jump") return;
     jumpRuntime.lessonStatus = `跟我读：${word.english}`;
     syncJumpFlashcard();
@@ -793,7 +900,7 @@ async function openJumpGift(gift) {
     if (runId !== state.runId || state.screen !== "jump") return;
 
     if (!canListen()) {
-      jumpRuntime.lessonStatus = "这个浏览器不支持录音，我们先继续下一次跳跃。";
+      jumpRuntime.lessonStatus = "这个浏览器不支持录音，我们先继续下一个单词。";
       syncJumpFlashcard();
       await wait(900);
     } else {
@@ -802,37 +909,34 @@ async function openJumpGift(gift) {
       const transcript = await listenOnce();
       if (runId !== state.runId || state.screen !== "jump") return;
       const ok = isPronunciationMatch(transcript, word.english);
-      jumpRuntime.lessonStatus = ok ? `太棒了，你读对了：${transcript}` : `我听到：${transcript || "没有听清"}，下次再试一次。`;
+      jumpRuntime.lessonStatus = ok ? `太棒了，你读对了：${transcript}` : `我听到：${transcript || "没有听清"}，我们继续。`;
+      syncJumpFlashcard();
       if (ok) {
         state.learned.add(word.id);
         state.correct.add(word.id);
         await speak("Great job!", { lang: "en-US", rate: 0.82, style: "reward" });
       } else {
-        await speak("再跳一次，我们继续。", { lang: "zh-CN", rate: 0.84, style: "jump-encourage" });
+        await speak(`The word is ${word.english}`, { lang: "en-US", rate: 0.78, style: "jump-repeat" });
       }
     }
   } catch (error) {
     if (runId !== state.runId || state.screen !== "jump") return;
-    jumpRuntime.lessonStatus = error?.message || "这次没有成功读出来，我们继续下一轮。";
+    jumpRuntime.lessonStatus = error?.message || "这次没有成功读出来，我们继续下一个单词。";
     syncJumpFlashcard();
     await wait(900);
   }
 
   if (runId !== state.runId || state.screen !== "jump") return;
-  replaceJumpGiftWord(gift);
-  jumpRuntime.activeGiftId = null;
-  jumpRuntime.flashcardWordIndex = null;
-  jumpRuntime.lessonStatus = "继续左右移动，再跳起来顶下一个礼包。";
   state.isBusy = false;
   jumpRuntime.detector?.setPaused(false);
-  syncJumpScene();
-  syncJumpFlashcard();
+  setupNextJumpWord();
 }
 
 function syncJumpScene() {
   const giftsContainer = jumpRuntime.elements.gifts;
   if (giftsContainer) {
     const presentIds = new Set();
+    const targetLetter = getCurrentJumpTargetLetter();
     for (const gift of jumpRuntime.gifts) {
       presentIds.add(gift.id);
       let node = jumpRuntime.giftNodes.get(gift.id);
@@ -849,14 +953,14 @@ function syncJumpScene() {
         giftsContainer.appendChild(node);
         jumpRuntime.giftNodes.set(gift.id, node);
       }
-      const word = words[gift.wordIndex];
-      node.className = `jump-gift is-${gift.state}`;
+      node.className = `jump-gift is-${gift.state} ${gift.letter === targetLetter ? "is-target" : ""}`;
       node.style.left = `${gift.x * 100}%`;
+      const word = words[jumpRuntime.currentWordIndex ?? 0] || words[0];
       node.style.setProperty("--gift", word.color);
       node.style.setProperty("--accent", word.accent);
-      node.querySelector(".jump-gift-icon").textContent = gift.state === "open" ? word.emoji : PACKAGE_ICONS[gift.slot % PACKAGE_ICONS.length];
-      node.querySelector(".jump-gift-title").textContent = gift.state === "open" ? word.english : "Jump";
-      node.querySelector(".jump-gift-sub").textContent = gift.state === "open" ? word.chinese : "Hit me";
+      node.querySelector(".jump-gift-icon").textContent = gift.letter.toUpperCase();
+      node.querySelector(".jump-gift-title").textContent = gift.letter.toUpperCase();
+      node.querySelector(".jump-gift-sub").textContent = gift.state === "correct" ? "Correct" : "Jump it";
     }
 
     for (const [id, node] of Array.from(jumpRuntime.giftNodes.entries())) {
@@ -1417,6 +1521,44 @@ function wait(ms) {
 
 function clamp(value, min, max) {
   return Math.min(max, Math.max(min, value));
+}
+
+function normalizeJumpWord(value) {
+  return value.toLowerCase().replace(/[^a-z]/g, "");
+}
+
+function getCurrentJumpTargetLetter() {
+  return jumpRuntime.currentSpelling[jumpRuntime.currentLetterIndex] || "";
+}
+
+function formatJumpProgress() {
+  if (!jumpRuntime.currentSpelling) return "-";
+  return jumpRuntime.currentSpelling
+    .split("")
+    .map((letter, index) => (index < jumpRuntime.currentLetterIndex ? letter.toUpperCase() : "_"))
+    .join("");
+}
+
+function repeatJumpLetter(letter) {
+  const upper = letter.toUpperCase();
+  return `${upper}, ${upper}, ${upper}`;
+}
+
+function shuffleLetters(list) {
+  const next = [...list];
+  for (let index = next.length - 1; index > 0; index -= 1) {
+    const swapIndex = Math.floor(Math.random() * (index + 1));
+    [next[index], next[swapIndex]] = [next[swapIndex], next[index]];
+  }
+  return next;
+}
+
+function computeJumpGiftSlots(count) {
+  if (count <= 1) return [0.5];
+  const start = 0.12;
+  const end = 0.88;
+  const step = (end - start) / (count - 1);
+  return Array.from({ length: count }, (_, index) => start + step * index);
 }
 
 render();

@@ -548,6 +548,14 @@ button:disabled {
   will-change: transform;
 }
 
+.jump-gift.is-target .jump-gift-core {
+  animation: jumpGiftTarget 0.9s ease-in-out infinite;
+  box-shadow:
+    0 24px 34px rgba(255, 209, 102, 0.34),
+    0 0 0 6px rgba(255, 255, 255, 0.22),
+    inset 0 0 0 2px rgba(255, 255, 255, 0.82);
+}
+
 .jump-gift-core {
   height: 100%;
   display: grid;
@@ -562,6 +570,18 @@ button:disabled {
   box-shadow:
     0 24px 30px rgba(17, 51, 58, 0.24),
     inset 0 0 0 2px rgba(255, 255, 255, 0.82);
+}
+
+.jump-gift.is-correct .jump-gift-core {
+  transform: scale(1.08);
+  box-shadow:
+    0 28px 40px rgba(4, 184, 200, 0.28),
+    0 0 0 8px rgba(126, 249, 255, 0.18),
+    inset 0 0 0 2px rgba(255, 255, 255, 0.82);
+}
+
+.jump-gift.is-wrong .jump-gift-core {
+  animation: jumpGiftWrong 0.32s ease-out;
 }
 
 .jump-gift::before,
@@ -628,6 +648,21 @@ button:disabled {
   }
   100% {
     transform: translateX(-50%) translateY(-4px) scale(1.04);
+  }
+}
+
+@keyframes jumpGiftTarget {
+  50% {
+    transform: translateY(-8px) scale(1.04);
+  }
+}
+
+@keyframes jumpGiftWrong {
+  20% {
+    transform: translateX(-6px) rotate(-4deg);
+  }
+  60% {
+    transform: translateX(6px) rotate(4deg);
   }
 }
 
