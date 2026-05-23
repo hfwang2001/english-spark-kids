@@ -1,4 +1,6 @@
 import { words } from "./words.js";
+import { createSlashDetector } from "./pose.js";
+import { createJumpDetector } from "./jump_pose.js";
 import { canListen, isPronunciationMatch, listenOnce, speak, speakLearningScript, stopSpeech } from "./speech.js";
 
 window.APP_CONFIG = {
@@ -16,6 +18,102 @@ const state = {
   runId: 0
 };
 
+const PACKAGE_ICONS = ["🎁", "🎀", "📦", "🎉", "🪅", "🎊"];
+const ROUND_DURATION_MS = 60000;
+const MAX_REVIEW_WORDS = 6;
+const JUMP_MAX_LETTERS = 6;
+
+const learnRuntime = {
+  detector: null,
+  running: false,
+  reviewing: false,
+  roundActive: false,
+  gameRaf: 0,
+  lastTick: 0,
+  lastSpawnAt: 0,
+  nextGiftId: 1,
+  spawnCursor: 0,
+  roundNumber: 0,
+  roundRemainingMs: ROUND_DURATION_MS,
+  collectedOrder: [],
+  collectedSet: new Set(),
+  gifts: [],
+  giftNodes: new Map(),
+  slashTrails: [],
+  lastHitIndex: null,
+  hitPopup: null,
+  elements: {
+    arena: null,
+    slashCanvas: null,
+    video: null,
+    canvas: null,
+    status: null,
+    debug: null,
+    stageLabel: null,
+    scoreLearned: null,
+    scoreRound: null,
+    scoreLatest: null,
+    scoreTimer: null,
+    reviewButton: null,
+    popup: null,
+    spotlightCard: null,
+    spotlightEmoji: null,
+    spotlightEnglish: null,
+    spotlightChinese: null,
+    roundCollection: null
+  },
+  gestureStatus: "打开摄像头后，直接大幅挥动手臂，像切水果一样切开礼包。",
+  debugText: ""
+};
+
+const jumpRuntime = {
+  detector: null,
+  running: false,
+  raf: 0,
+  lastTick: 0,
+  nextWordCursor: 0,
+  currentWordIndex: null,
+  currentSpelling: "",
+  currentLetterIndex: 0,
+  promptTimer: 0,
+  promptVersion: 0,
+  gifts: [],
+  giftNodes: new Map(),
+  avatarX: 0.5,
+  targetX: 0.5,
+  avatarY: 0,
+  avatarVelocity: 0,
+  pendingGiftId: null,
+  activeGiftId: null,
+  flashcardWordIndex: null,
+  lessonStatus: "站到镜头前，左右移动小人，再跳起来顶礼包。",
+  detectorStatus: "我会跟着你移动，跳起来就能顶开奖包。",
+  debugText: "",
+  elements: {
+    stage: null,
+    gifts: null,
+    avatar: null,
+    video: null,
+    canvas: null,
+    detectorStatus: null,
+    debug: null,
+    flashcard: null,
+    flashcardCard: null,
+    flashcardEmoji: null,
+    flashcardEnglish: null,
+    flashcardChinese: null,
+    flashcardStatus: null,
+    latest: null
+  }
+};
+
+const jumpWordPool = words
+  .map((word, index) => ({
+    index,
+    spelling: normalizeJumpWord(word.english)
+  }))
+  .filter((entry) => entry.spelling && entry.spelling.length <= JUMP_MAX_LETTERS);
+
 const app = document.querySelector("#app");
 
 function render() {
@@ -26,6 +124,7 @@ function render() {
     </main>
   `;
   bindEvents();
+  syncScreenRuntime();
 }
 
 function renderHeader() {
@@ -38,8 +137,9 @@ function renderHeader() {
       </button>
       <nav class="tabs" aria-label="游戏步骤">
         ${tabButton("learn", "背单词", "1")}
-        ${tabButton("quiz", "听读闯关", "2")}
-        ${tabButton("summary", "学习总结", "3")}
+        ${tabButton("jump", "跳跳开礼包", "2")}
+        ${tabButton("quiz", "听读闯关", "3")}
+        ${tabButton("summary", "学习总结", "4")}
       </nav>
       <div class="meter" aria-label="学习进度">
         <span style="width:${progress}%"></span>
@@ -56,6 +156,7 @@ function tabButton(screen, label, step) {
 
 function renderScreen() {
   if (state.screen === "learn") return renderLearn();
+  if (state.screen === "jump") return renderJump();
   if (state.screen === "quiz") return renderQuiz();
   if (state.screen === "reward") return renderReward();
   if (state.screen === "summary") return renderSummary();
@@ -81,29 +182,175 @@ function renderHome() {
 
 function renderLearn() {
   const current = words[state.learningIndex] || words[0];
-  const seen = words.slice(0, state.learningIndex + 1);
+  const latestWord = learnRuntime.lastHitIndex == null ? "-" : words[learnRuntime.lastHitIndex].english;
+  const learnedWords = words.filter((word) => state.learned.has(word.id));
+  const learnedPreview = (learnedWords.length ? learnedWords : words.slice(0, 6))
+    .map((word) => compactCard(word, true, state.learned.has(word.id)))
+    .join("");
+  const roundCollection = learnRuntime.collectedOrder.length
+    ? learnRuntime.collectedOrder
+      .slice(0, MAX_REVIEW_WORDS)
+      .map((wordIndex) => compactCard(words[wordIndex], true, true))
+      .join("")
+    : `<div class="round-collection-empty">这一轮先随便挥，切中的单词会收进这里。</div>`;
+
   return `
-    <section class="learn-layout">
-      <div class="learn-status">
-        <span>${state.learningIndex + 1} / ${words.length}</span>
-        <div class="learn-line"><i style="width:${((state.learningIndex + 1) / words.length) * 100}%"></i></div>
+    <section class="learn-layout arcade-learn">
+      <div class="learn-stage-head">
+        <div>
+          <p class="eyebrow">Slice To Learn</p>
+          <h1>挥砍礼包舞台</h1>
+          <p class="learn-stage-copy">先玩 1 分钟礼包雨。切中后只弹大字和音效，不停下来；时间到了再把这一轮收集到的单词统一学一遍。</p>
+        </div>
+        <div class="learn-scoreboard">
+          <span><b id="learn-score-learned">${state.learned.size}</b> 已学会</span>
+          <span><b id="learn-score-round">${learnRuntime.collectedOrder.length}</b> 本轮收集</span>
+          <span><b id="learn-score-latest">${latestWord}</b> 最新切开</span>
+          <span><b id="learn-score-timer">${getRoundSecondsLeft()}s</b> 本轮剩余</span>
+        </div>
       </div>
-      <article class="spotlight-card" data-word="${current.id}" style="--card:${current.color};--accent:${current.accent}">
-        ${cardImage(current)}
+
+      <div class="learn-arcade-grid learn-arcade-grid--single">
+        <section class="arena-panel arena-panel--immersive">
+          <div class="wheel-status ${state.isBusy ? "is-busy" : ""}">
+            <span class="wheel-status-dot"></span>
+            <strong id="learn-stage-label">${getLearnStageLabel()}</strong>
+          </div>
+          <div class="slash-stage">
+            <div class="slash-stage-copy">
+              <span>礼包雨</span>
+              <b>Fruit Ninja For Words</b>
+            </div>
+            <video id="learn-video" class="hidden-pose-video" autoplay muted playsinline></video>
+            <canvas id="learn-overlay" class="pose-stage-overlay"></canvas>
+            <div class="gift-arena" id="learn-arena">
+              <canvas id="learn-slash-overlay" class="slash-overlay"></canvas>
+            </div>
+            <div id="learn-hit-popup" class="hit-popup" aria-live="polite"></div>
+          </div>
+          <div class="learn-controls">
+            <button class="primary" data-action="play-current" ${state.isBusy ? "disabled" : ""}>重播当前词卡</button>
+            <button class="secondary" data-action="review-round" id="learn-review-button" ${state.isBusy || !learnRuntime.collectedOrder.length ? "disabled" : ""}>立即复习本轮</button>
+            <button class="secondary" data-action="retry-camera">重新打开摄像头</button>
+          </div>
+          <div class="stage-tracking-bar">
+            <div class="stage-tracking-copy">
+              <p class="eyebrow">Body Tracking</p>
+              <h2>骨架挥砍舞台</h2>
+              <p id="learn-gesture-status" class="status">${learnRuntime.gestureStatus}</p>
+            </div>
+            <div class="stage-tracking-debug">
+              <div class="vision-badge">Pose Skeleton</div>
+              <pre id="learn-gesture-debug" class="debug-panel">${learnRuntime.debugText || "等待动作调试数据..."}</pre>
+            </div>
+          </div>
+          <small>玩法提示：不用看摄像头画面，只看骨架和手腕发光点，像挥光剑一样切过去就行。</small>
+        </section>
+      </div>
+
+      <article id="learn-spotlight-card" class="spotlight-card learn-spotlight" data-word="${current.id}" style="--card:${current.color};--accent:${current.accent}">
+        ${cardImage(current, "learn-spotlight-emoji")}
         <div class="word-meta">
-          <h2>${current.english}</h2>
-          <p>${current.chinese}</p>
+          <p class="eyebrow">Latest Surprise</p>
+          <h2 id="learn-spotlight-english">${current.english}</h2>
+          <p id="learn-spotlight-chinese">${current.chinese}</p>
         </div>
         <div class="card-sparkles"><i></i><i></i><i></i></div>
       </article>
-      <div class="learn-controls">
-        <button class="primary" data-action="play-current" ${state.isBusy ? "disabled" : ""}>播放这一张</button>
-        <button class="secondary" data-action="next-learn" ${state.isBusy ? "disabled" : ""}>下一张</button>
-        <small>${state.isBusy ? "读完后 5 秒自动进入下一张" : "准备开始"}</small>
+
+      <section class="round-collection-panel">
+        <div class="round-collection-head">
+          <p class="eyebrow">Round Loot</p>
+          <h2>这一轮收集到的单词</h2>
+          <p>回合结束后，我们会按照这里的顺序统一学一遍。</p>
+        </div>
+        <div id="learn-round-collection" class="ribbon-grid round-collection-grid">
+          ${roundCollection}
+        </div>
+      </section>
+
+      <div class="ribbon-grid learned-preview">
+        ${learnedPreview}
       </div>
-      <div class="ribbon-grid">
-        ${seen.map((word) => compactCard(word)).join("")}
+    </section>
+  `;
+}
+
+function renderJump() {
+  const currentIndex = jumpRuntime.flashcardWordIndex ?? jumpRuntime.currentWordIndex ?? 0;
+  const current = words[currentIndex] || words[0];
+  const latestWord = jumpRuntime.currentWordIndex == null ? "-" : words[jumpRuntime.currentWordIndex]?.english || "-";
+  const targetLetter = getCurrentJumpTargetLetter()?.toUpperCase() || "-";
+  const progressText = formatJumpProgress();
+
+  return `
+    <section class="learn-layout jump-learn">
+      <div class="learn-stage-head">
+        <div>
+          <p class="eyebrow">Jump To Learn</p>
+          <h1>跳跳开礼包</h1>
+          <p class="learn-stage-copy">上方每个礼包代表一个字母。系统会按顺序播报字母，小朋友跳起来顶对对应礼包，直到把整个单词拼出来，再进入闪卡学习。</p>
+        </div>
+        <div class="learn-scoreboard">
+          <span><b>${state.learned.size}</b> 已学会</span>
+          <span><b>${latestWord}</b> 当前单词</span>
+          <span><b>${targetLetter}</b> 当前字母</span>
+          <span><b>${progressText}</b> 拼写进度</span>
+        </div>
       </div>
+
+      <section class="jump-stage-panel">
+          <div class="wheel-status ${state.isBusy ? "is-busy" : ""}">
+            <span class="wheel-status-dot"></span>
+            <strong>${state.isBusy ? "跟读中，小人先暂停一下" : "左右移动小人，跳起来顶开上方礼包"}</strong>
+          </div>
+
+          <div id="jump-stage" class="jump-stage">
+            <div id="jump-gifts" class="jump-gifts"></div>
+            <div id="jump-avatar" class="jump-avatar">
+              <div class="jump-avatar-shadow"></div>
+              <div class="jump-avatar-body">
+                <div class="jump-avatar-head">🧒</div>
+                <div class="jump-avatar-torso"></div>
+                <div class="jump-avatar-arm left"></div>
+                <div class="jump-avatar-arm right"></div>
+                <div class="jump-avatar-leg left"></div>
+                <div class="jump-avatar-leg right"></div>
+              </div>
+            </div>
+            <article id="jump-flashcard" class="jump-flashcard">
+              <div id="jump-flashcard-card" class="spotlight-card jump-flashcard-card" data-word="${current.id}" style="--card:${current.color};--accent:${current.accent}">
+                ${cardImage(current, "jump-flashcard-emoji")}
+                <div class="word-meta">
+                  <p class="eyebrow">Gift Card</p>
+                  <h2 id="jump-flashcard-english">${current.english}</h2>
+                  <p id="jump-flashcard-chinese">${current.chinese}</p>
+                  <div id="jump-flashcard-status" class="status">${jumpRuntime.lessonStatus}</div>
+                </div>
+              </div>
+            </article>
+          </div>
+
+          <div class="learn-controls">
+            <button class="secondary" data-action="retry-jump-camera">重新打开摄像头</button>
+          </div>
+
+          <small>玩法提示：不用挥手，只要左右移动身体让小人跟着走，再原地跳一下就能顶开奖包。</small>
+      </section>
+
+      <aside class="vision-panel jump-camera-panel">
+        <div class="vision-frame jump-vision-frame">
+          <video id="jump-video" autoplay muted playsinline></video>
+          <canvas id="jump-overlay"></canvas>
+          <div class="vision-badge">Jump Camera</div>
+        </div>
+        <div class="vision-copy">
+          <p class="eyebrow">Motion Tracking</p>
+          <h2>跟随与跳跃识别</h2>
+          <p id="jump-detector-status" class="status">${jumpRuntime.detectorStatus}</p>
+          <pre id="jump-debug" class="debug-panel">${jumpRuntime.debugText || "等待躯干跟随与跳跃调试数据..."}</pre>
+        </div>
+      </aside>
     </section>
   `;
 }
@@ -176,30 +423,22 @@ function renderSummary() {
   `;
 }
 
-function cardImage(word) {
+function cardImage(word, emojiId = "") {
   return `
     <div class="image-frame" role="img" aria-label="${word.english} image">
       <div class="image-glow"></div>
-      <div class="emoji-art">${word.emoji}</div>
+      <div class="emoji-art"${emojiId ? ` id="${emojiId}"` : ""}>${word.emoji}</div>
     </div>
   `;
 }
 
-function compactCard(word, showEnglish = false) {
+function compactCard(word, showEnglish = false, learned = false) {
   return `
-    <article class="compact" style="--card:${word.color};--accent:${word.accent}">
+    <article class="compact ${learned ? "is-learned" : ""}" style="--card:${word.color};--accent:${word.accent}">
       <span>${word.emoji}</span>
       <b>${showEnglish ? word.english : word.chinese}</b>
       <small>${showEnglish ? word.chinese : word.english}</small>
     </article>
-  `;
-}
-
-function miniCard(word, index) {
-  return `
-    <span class="mini" style="--card:${word.color};--accent:${word.accent};--i:${index}">
-      ${word.emoji}
-    </span>
   `;
 }
 
@@ -209,54 +448,887 @@ function bindEvents() {
   });
 }
 
+function syncScreenRuntime() {
+  if (state.screen === "learn") {
+    mountLearnRuntime();
+    return;
+  }
+  if (state.screen === "jump") {
+    mountJumpRuntime();
+    return;
+  }
+
+  learnRuntime.elements = {
+    arena: null,
+    slashCanvas: null,
+    video: null,
+    canvas: null,
+    status: null,
+    debug: null,
+    stageLabel: null,
+    scoreLearned: null,
+    scoreRound: null,
+    scoreLatest: null,
+    scoreTimer: null,
+    reviewButton: null,
+    popup: null,
+    spotlightCard: null,
+    spotlightEmoji: null,
+    spotlightEnglish: null,
+    spotlightChinese: null,
+    roundCollection: null
+  };
+
+  jumpRuntime.elements = {
+    stage: null,
+    gifts: null,
+    avatar: null,
+    video: null,
+    canvas: null,
+    detectorStatus: null,
+    debug: null,
+    flashcard: null,
+    flashcardCard: null,
+    flashcardEmoji: null,
+    flashcardEnglish: null,
+    flashcardChinese: null,
+    flashcardStatus: null,
+    latest: null
+  };
+}
+
+function mountLearnRuntime() {
+  ensureLearnRuntime();
+  learnRuntime.elements.arena = document.querySelector("#learn-arena");
+  learnRuntime.elements.slashCanvas = document.querySelector("#learn-slash-overlay");
+  learnRuntime.elements.video = document.querySelector("#learn-video");
+  learnRuntime.elements.canvas = document.querySelector("#learn-overlay");
+  learnRuntime.elements.status = document.querySelector("#learn-gesture-status");
+  learnRuntime.elements.debug = document.querySelector("#learn-gesture-debug");
+  learnRuntime.elements.stageLabel = document.querySelector("#learn-stage-label");
+  learnRuntime.elements.scoreLearned = document.querySelector("#learn-score-learned");
+  learnRuntime.elements.scoreRound = document.querySelector("#learn-score-round");
+  learnRuntime.elements.scoreLatest = document.querySelector("#learn-score-latest");
+  learnRuntime.elements.scoreTimer = document.querySelector("#learn-score-timer");
+  learnRuntime.elements.reviewButton = document.querySelector("#learn-review-button");
+  learnRuntime.elements.popup = document.querySelector("#learn-hit-popup");
+  learnRuntime.elements.spotlightCard = document.querySelector("#learn-spotlight-card");
+  learnRuntime.elements.spotlightEmoji = document.querySelector("#learn-spotlight-emoji");
+  learnRuntime.elements.spotlightEnglish = document.querySelector("#learn-spotlight-english");
+  learnRuntime.elements.spotlightChinese = document.querySelector("#learn-spotlight-chinese");
+  learnRuntime.elements.roundCollection = document.querySelector("#learn-round-collection");
+
+  learnRuntime.detector.attach({
+    video: learnRuntime.elements.video,
+    canvas: learnRuntime.elements.canvas,
+    statusElement: learnRuntime.elements.status,
+    debugElement: learnRuntime.elements.debug
+  });
+
+  syncArenaCanvasSize();
+  syncArenaDom();
+  drawSlashOverlay();
+  syncLearnHud();
+  syncRoundCollection();
+}
+
+function ensureLearnRuntime() {
+  if (learnRuntime.detector) return;
+  learnRuntime.detector = createSlashDetector({
+    onStatus: (message) => {
+      learnRuntime.gestureStatus = message;
+    },
+    onDebug: (message) => {
+      learnRuntime.debugText = message;
+    },
+    onSlash: (payload) => {
+      handleLearnSlash(payload);
+    }
+  });
+}
+
+function mountJumpRuntime() {
+  ensureJumpRuntime();
+  jumpRuntime.elements.stage = document.querySelector("#jump-stage");
+  jumpRuntime.elements.gifts = document.querySelector("#jump-gifts");
+  jumpRuntime.elements.avatar = document.querySelector("#jump-avatar");
+  jumpRuntime.elements.video = document.querySelector("#jump-video");
+  jumpRuntime.elements.canvas = document.querySelector("#jump-overlay");
+  jumpRuntime.elements.detectorStatus = document.querySelector("#jump-detector-status");
+  jumpRuntime.elements.debug = document.querySelector("#jump-debug");
+  jumpRuntime.elements.flashcard = document.querySelector("#jump-flashcard");
+  jumpRuntime.elements.flashcardCard = document.querySelector("#jump-flashcard-card");
+  jumpRuntime.elements.flashcardEmoji = document.querySelector("#jump-flashcard-emoji");
+  jumpRuntime.elements.flashcardEnglish = document.querySelector("#jump-flashcard-english");
+  jumpRuntime.elements.flashcardChinese = document.querySelector("#jump-flashcard-chinese");
+  jumpRuntime.elements.flashcardStatus = document.querySelector("#jump-flashcard-status");
+
+  jumpRuntime.detector.attach({
+    video: jumpRuntime.elements.video,
+    canvas: jumpRuntime.elements.canvas,
+    statusElement: jumpRuntime.elements.detectorStatus,
+    debugElement: jumpRuntime.elements.debug
+  });
+
+  ensureJumpWordRound();
+  syncJumpScene();
+  syncJumpFlashcard();
+}
+
+function ensureJumpRuntime() {
+  if (jumpRuntime.detector) return;
+  jumpRuntime.detector = createJumpDetector({
+    onStatus: (message) => {
+      jumpRuntime.detectorStatus = message;
+    },
+    onDebug: (message) => {
+      jumpRuntime.debugText = message;
+    },
+    onTrack: (payload) => {
+      handleJumpTrack(payload);
+    },
+    onJump: (payload) => {
+      handleJumpDetected(payload);
+    }
+  });
+}
+
 async function handleAction(action) {
-  if (["home", "learn", "quiz", "summary"].includes(action)) {
-    stopSpeech();
-    state.runId += 1;
-    state.isBusy = false;
-    state.screen = action;
-    state.transcript = "";
-    render();
-    if (action === "learn") playCurrentLearning();
+  if (["home", "learn", "jump", "quiz", "summary"].includes(action)) {
+    navigateTo(action);
     return;
   }
   if (action === "play-current") await playCurrentLearning();
-  if (action === "next-learn") nextLearn();
   if (action === "listen") await listenForWord();
   if (action === "skip-reward") showReward();
   if (action === "next-quiz") nextQuiz();
   if (action === "read-summary") await readSummary();
+  if (action === "resume-arena") resumeLearnArena();
+  if (action === "review-round") await reviewCurrentRound();
+  if (action === "retry-camera") await retryLearnCamera();
+  if (action === "retry-jump-camera") await retryJumpCamera();
+}
+
+function navigateTo(screen) {
+  const leavingLearn = state.screen === "learn" && screen !== "learn";
+  const leavingJump = state.screen === "jump" && screen !== "jump";
+  stopSpeech();
+  state.runId += 1;
+  state.isBusy = false;
+  state.transcript = "";
+  if (leavingLearn) stopLearnExperience();
+  if (leavingJump) stopJumpExperience();
+  state.screen = screen;
+  render();
+  if (screen === "learn") startLearnExperience();
+  if (screen === "jump") startJumpExperience();
+}
+
+async function startLearnExperience() {
+  ensureLearnRuntime();
+  mountLearnRuntime();
+  if (!learnRuntime.roundActive && !learnRuntime.reviewing) startNewLearnRound();
+  resumeLearnArena();
+  await learnRuntime.detector.start();
+}
+
+function stopLearnExperience() {
+  pauseLearnArena();
+  learnRuntime.detector?.stop();
+  learnRuntime.gifts = [];
+  learnRuntime.giftNodes.forEach((node) => node.remove());
+  learnRuntime.giftNodes.clear();
+  learnRuntime.slashTrails = [];
+  learnRuntime.reviewing = false;
+  learnRuntime.roundActive = false;
+  learnRuntime.roundRemainingMs = ROUND_DURATION_MS;
+  learnRuntime.collectedOrder = [];
+  learnRuntime.collectedSet = new Set();
+  learnRuntime.hitPopup = null;
+}
+
+async function retryLearnCamera() {
+  if (state.screen !== "learn") return;
+  ensureLearnRuntime();
+  await learnRuntime.detector.restart();
+}
+
+async function startJumpExperience() {
+  ensureJumpRuntime();
+  mountJumpRuntime();
+  resumeJumpStage();
+  await jumpRuntime.detector.start();
+}
+
+function stopJumpExperience() {
+  pauseJumpStage();
+  jumpRuntime.detector?.stop();
+  cancelJumpPrompt();
+  jumpRuntime.giftNodes.forEach((node) => node.remove());
+  jumpRuntime.giftNodes.clear();
+  jumpRuntime.gifts = [];
+  jumpRuntime.activeGiftId = null;
+  jumpRuntime.pendingGiftId = null;
+  jumpRuntime.flashcardWordIndex = null;
+  jumpRuntime.currentWordIndex = null;
+  jumpRuntime.currentSpelling = "";
+  jumpRuntime.currentLetterIndex = 0;
+  jumpRuntime.avatarX = 0.5;
+  jumpRuntime.targetX = 0.5;
+  jumpRuntime.avatarY = 0;
+  jumpRuntime.avatarVelocity = 0;
+}
+
+async function retryJumpCamera() {
+  if (state.screen !== "jump") return;
+  ensureJumpRuntime();
+  await jumpRuntime.detector.restart();
+}
+
+function resumeJumpStage() {
+  if (state.screen !== "jump") return;
+  ensureJumpWordRound();
+  jumpRuntime.detector?.setPaused(state.isBusy);
+  if (jumpRuntime.running) return;
+  jumpRuntime.running = true;
+  jumpRuntime.lastTick = performance.now();
+  tickJumpStage(jumpRuntime.lastTick);
+}
+
+function pauseJumpStage() {
+  jumpRuntime.running = false;
+  if (jumpRuntime.raf) {
+    window.cancelAnimationFrame(jumpRuntime.raf);
+    jumpRuntime.raf = 0;
+  }
+  jumpRuntime.lastTick = 0;
+}
+
+function tickJumpStage(timestamp) {
+  if (!jumpRuntime.running) return;
+  const delta = Math.min(0.033, jumpRuntime.lastTick ? (timestamp - jumpRuntime.lastTick) / 1000 : 0);
+  jumpRuntime.lastTick = timestamp;
+
+  jumpRuntime.avatarX += (jumpRuntime.targetX - jumpRuntime.avatarX) * Math.min(1, delta * 8);
+
+  if (jumpRuntime.avatarY > 0 || jumpRuntime.avatarVelocity > 0) {
+    jumpRuntime.avatarY += jumpRuntime.avatarVelocity * delta;
+    jumpRuntime.avatarVelocity -= 4.6 * delta;
+
+    if (jumpRuntime.pendingGiftId && jumpRuntime.avatarY > 0.17) {
+      const gift = jumpRuntime.gifts.find((item) => item.id === jumpRuntime.pendingGiftId);
+      if (gift?.state === "closed") {
+        void handleJumpGiftSelection(gift);
+      }
+    }
+
+    if (jumpRuntime.avatarY <= 0) {
+      jumpRuntime.avatarY = 0;
+      jumpRuntime.avatarVelocity = 0;
+      jumpRuntime.pendingGiftId = null;
+    }
+  }
+
+  syncJumpScene();
+  jumpRuntime.raf = window.requestAnimationFrame((nextTimestamp) => tickJumpStage(nextTimestamp));
+}
+
+function ensureJumpWordRound() {
+  if (jumpRuntime.currentWordIndex != null && jumpRuntime.gifts.length) return;
+  setupNextJumpWord();
+}
+
+function handleJumpTrack(payload) {
+  if (state.screen !== "jump") return;
+  jumpRuntime.targetX = clamp(payload.x, 0.12, 0.88);
+}
+
+function handleJumpDetected(payload) {
+  if (state.screen !== "jump" || state.isBusy) return;
+  jumpRuntime.targetX = clamp(payload.x, 0.12, 0.88);
+  if (jumpRuntime.avatarY > 0.04) return;
+  jumpRuntime.avatarVelocity = 1.45;
+  jumpRuntime.pendingGiftId = findJumpTargetGiftId(jumpRuntime.targetX);
+}
+
+function findJumpTargetGiftId(targetX) {
+  let bestGift = null;
+  let bestDistance = Infinity;
+  for (const gift of jumpRuntime.gifts) {
+    if (gift.state === "used") continue;
+    const distanceToGift = Math.abs(gift.x - targetX);
+    if (distanceToGift < 0.18 && distanceToGift < bestDistance) {
+      bestGift = gift;
+      bestDistance = distanceToGift;
+    }
+  }
+  return bestGift?.id || null;
+}
+
+async function handleJumpGiftSelection(gift) {
+  if (state.screen !== "jump" || state.isBusy || !gift) return;
+  jumpRuntime.pendingGiftId = null;
+  jumpRuntime.activeGiftId = gift.id;
+  const expectedLetter = getCurrentJumpTargetLetter();
+  if (!expectedLetter) return;
+
+  if (gift.letter !== expectedLetter) {
+    jumpRuntime.lessonStatus = `还不是 ${gift.letter.toUpperCase()}，继续找 ${expectedLetter.toUpperCase()}。`;
+    gift.state = "wrong";
+    gift.openedAt = performance.now();
+    syncJumpScene();
+    queueJumpLetterPrompt(260);
+    return;
+  }
+
+  gift.state = "correct";
+  gift.openedAt = performance.now();
+  jumpRuntime.lessonStatus = `答对了，这是 ${gift.letter.toUpperCase()}。`;
+  jumpRuntime.currentLetterIndex += 1;
+  syncJumpScene();
+
+  if (jumpRuntime.currentLetterIndex < jumpRuntime.currentSpelling.length) {
+    queueJumpLetterPrompt(260);
+    return;
+  }
+
+  await completeJumpSpellingWord();
+}
+
+function setupNextJumpWord() {
+  const entry = jumpWordPool[jumpRuntime.nextWordCursor % jumpWordPool.length] || jumpWordPool[0];
+  jumpRuntime.nextWordCursor = (jumpRuntime.nextWordCursor + 1) % Math.max(1, jumpWordPool.length);
+  jumpRuntime.currentWordIndex = entry.index;
+  jumpRuntime.currentSpelling = entry.spelling;
+  jumpRuntime.currentLetterIndex = 0;
+  jumpRuntime.flashcardWordIndex = null;
+  jumpRuntime.activeGiftId = null;
+  jumpRuntime.pendingGiftId = null;
+  jumpRuntime.lessonStatus = `先听字母，再跳起来顶对礼包。`;
+
+  const uniqueLetters = shuffleLetters(Array.from(new Set(entry.spelling.split(""))));
+  const slots = computeJumpGiftSlots(uniqueLetters.length);
+  jumpRuntime.gifts = uniqueLetters.map((letter, index) => ({
+    id: `jump-gift-${index}-${letter}`,
+    slot: index,
+    x: slots[index],
+    letter,
+    state: "closed",
+    openedAt: 0
+  }));
+
+  jumpRuntime.giftNodes.forEach((node) => node.remove());
+  jumpRuntime.giftNodes.clear();
+  syncJumpScene();
+  syncJumpFlashcard();
+  queueJumpLetterPrompt(420);
+}
+
+function queueJumpLetterPrompt(delay = 0) {
+  cancelJumpPrompt();
+  resetJumpGiftVisualStates();
+  const version = ++jumpRuntime.promptVersion;
+  jumpRuntime.promptTimer = window.setTimeout(() => {
+    jumpRuntime.promptTimer = 0;
+    void playJumpLetterPrompt(version);
+  }, delay);
+}
+
+async function playJumpLetterPrompt(version) {
+  if (state.screen !== "jump" || state.isBusy) return;
+  if (version !== jumpRuntime.promptVersion) return;
+  const letter = getCurrentJumpTargetLetter();
+  if (!letter) return;
+
+  jumpRuntime.lessonStatus = `请跳起来顶字母 ${letter.toUpperCase()}`;
+  syncJumpScene();
+  syncJumpFlashcard();
+
+  try {
+    await speak(repeatJumpLetter(letter), {
+      lang: "en-US",
+      rate: 0.72,
+      style: "jump-letter",
+      pause: 80
+    });
+  } catch {}
+
+  if (state.screen !== "jump" || state.isBusy) return;
+  if (version !== jumpRuntime.promptVersion) return;
+  if (getCurrentJumpTargetLetter() !== letter) return;
+  queueJumpLetterPrompt(1100);
+}
+
+function cancelJumpPrompt() {
+  jumpRuntime.promptVersion += 1;
+  if (jumpRuntime.promptTimer) {
+    window.clearTimeout(jumpRuntime.promptTimer);
+    jumpRuntime.promptTimer = 0;
+  }
+}
+
+function resetJumpGiftVisualStates() {
+  for (const gift of jumpRuntime.gifts) {
+    gift.state = "closed";
+    gift.openedAt = 0;
+  }
+  syncJumpScene();
+}
+
+async function completeJumpSpellingWord() {
+  if (state.screen !== "jump" || state.isBusy || jumpRuntime.currentWordIndex == null) return;
+  cancelJumpPrompt();
+  const runId = ++state.runId;
+  const word = words[jumpRuntime.currentWordIndex];
+  jumpRuntime.flashcardWordIndex = jumpRuntime.currentWordIndex;
+  jumpRuntime.lessonStatus = `${word.english}，${word.chinese}`;
+  state.learningIndex = jumpRuntime.currentWordIndex;
+  state.isBusy = true;
+  jumpRuntime.detector?.setPaused(true);
+  syncJumpScene();
+  syncJumpFlashcard();
+
+  await wait(280);
+  if (runId !== state.runId || state.screen !== "jump") return;
+
+  try {
+    await speak(word.english, { lang: "en-US", rate: 0.8, style: "jump-hit", pause: 100 });
+    if (runId !== state.runId || state.screen !== "jump") return;
+    jumpRuntime.lessonStatus = `跟我读：${word.english}`;
+    syncJumpFlashcard();
+    await speak(`Now say ${word.english}`, { lang: "en-US", rate: 0.78, style: "jump-repeat" });
+    if (runId !== state.runId || state.screen !== "jump") return;
+
+    if (!canListen()) {
+      jumpRuntime.lessonStatus = "这个浏览器不支持录音，我们先继续下一个单词。";
+      syncJumpFlashcard();
+      await wait(900);
+    } else {
+      jumpRuntime.lessonStatus = `请大声读出 ${word.english}`;
+      syncJumpFlashcard();
+      const transcript = await listenOnce();
+      if (runId !== state.runId || state.screen !== "jump") return;
+      const ok = isPronunciationMatch(transcript, word.english);
+      jumpRuntime.lessonStatus = ok ? `太棒了，你读对了：${transcript}` : `我听到：${transcript || "没有听清"}，我们继续。`;
+      syncJumpFlashcard();
+      if (ok) {
+        state.learned.add(word.id);
+        state.correct.add(word.id);
+        await speak("Great job!", { lang: "en-US", rate: 0.82, style: "reward" });
+      } else {
+        await speak(`The word is ${word.english}`, { lang: "en-US", rate: 0.78, style: "jump-repeat" });
+      }
+    }
+  } catch (error) {
+    if (runId !== state.runId || state.screen !== "jump") return;
+    jumpRuntime.lessonStatus = error?.message || "这次没有成功读出来，我们继续下一个单词。";
+    syncJumpFlashcard();
+    await wait(900);
+  }
+
+  if (runId !== state.runId || state.screen !== "jump") return;
+  state.isBusy = false;
+  jumpRuntime.detector?.setPaused(false);
+  setupNextJumpWord();
+}
+
+function syncJumpScene() {
+  const giftsContainer = jumpRuntime.elements.gifts;
+  if (giftsContainer) {
+    const presentIds = new Set();
+    const targetLetter = getCurrentJumpTargetLetter();
+    for (const gift of jumpRuntime.gifts) {
+      presentIds.add(gift.id);
+      let node = jumpRuntime.giftNodes.get(gift.id);
+      if (!node) {
+        node = document.createElement("article");
+        node.className = "jump-gift";
+        node.innerHTML = `
+          <div class="jump-gift-core">
+            <span class="jump-gift-icon"></span>
+            <b class="jump-gift-title"></b>
+            <small class="jump-gift-sub"></small>
+          </div>
+        `;
+        giftsContainer.appendChild(node);
+        jumpRuntime.giftNodes.set(gift.id, node);
+      }
+      node.className = `jump-gift is-${gift.state} ${gift.letter === targetLetter ? "is-target" : ""}`;
+      node.style.left = `${gift.x * 100}%`;
+      const word = words[jumpRuntime.currentWordIndex ?? 0] || words[0];
+      node.style.setProperty("--gift", word.color);
+      node.style.setProperty("--accent", word.accent);
+      node.querySelector(".jump-gift-icon").textContent = gift.letter.toUpperCase();
+      node.querySelector(".jump-gift-title").textContent = gift.letter.toUpperCase();
+      node.querySelector(".jump-gift-sub").textContent = gift.state === "correct" ? "Correct" : "Jump it";
+    }
+
+    for (const [id, node] of Array.from(jumpRuntime.giftNodes.entries())) {
+      if (presentIds.has(id)) continue;
+      node.remove();
+      jumpRuntime.giftNodes.delete(id);
+    }
+  }
+
+  const avatar = jumpRuntime.elements.avatar;
+  const stage = jumpRuntime.elements.stage;
+  if (avatar && stage) {
+    const height = Math.max(320, stage.clientHeight || 0);
+    avatar.style.left = `${jumpRuntime.avatarX * 100}%`;
+    avatar.style.transform = `translate(-50%, ${-jumpRuntime.avatarY * height}px)`;
+    avatar.classList.toggle("is-jumping", jumpRuntime.avatarY > 0.02);
+  }
+}
+
+function syncJumpFlashcard() {
+  const flashcard = jumpRuntime.elements.flashcard;
+  const wordIndex = jumpRuntime.flashcardWordIndex;
+  if (!flashcard || wordIndex == null) {
+    if (flashcard) flashcard.classList.remove("is-visible");
+    return;
+  }
+
+  const word = words[wordIndex];
+  flashcard.classList.add("is-visible");
+  if (jumpRuntime.elements.flashcardCard) {
+    jumpRuntime.elements.flashcardCard.dataset.word = word.id;
+    jumpRuntime.elements.flashcardCard.style.setProperty("--card", word.color);
+    jumpRuntime.elements.flashcardCard.style.setProperty("--accent", word.accent);
+    const frame = jumpRuntime.elements.flashcardCard.querySelector(".image-frame");
+    if (frame) frame.setAttribute("aria-label", `${word.english} image`);
+  }
+  if (jumpRuntime.elements.flashcardEmoji) jumpRuntime.elements.flashcardEmoji.textContent = word.emoji;
+  if (jumpRuntime.elements.flashcardEnglish) jumpRuntime.elements.flashcardEnglish.textContent = word.english;
+  if (jumpRuntime.elements.flashcardChinese) jumpRuntime.elements.flashcardChinese.textContent = word.chinese;
+  if (jumpRuntime.elements.flashcardStatus) jumpRuntime.elements.flashcardStatus.textContent = jumpRuntime.lessonStatus;
+}
+
+function resumeLearnArena() {
+  if (state.screen !== "learn" || state.isBusy) return;
+  if (!learnRuntime.roundActive) startNewLearnRound();
+  learnRuntime.detector?.setPaused(false);
+  if (learnRuntime.running) return;
+  learnRuntime.running = true;
+  learnRuntime.lastTick = performance.now();
+  learnRuntime.lastSpawnAt = learnRuntime.lastTick;
+  tickLearnArena(learnRuntime.lastTick);
+}
+
+function pauseLearnArena() {
+  learnRuntime.running = false;
+  if (learnRuntime.gameRaf) {
+    window.cancelAnimationFrame(learnRuntime.gameRaf);
+    learnRuntime.gameRaf = 0;
+  }
+  learnRuntime.lastTick = 0;
+}
+
+function tickLearnArena(timestamp) {
+  if (!learnRuntime.running) return;
+  const delta = Math.min(0.033, learnRuntime.lastTick ? (timestamp - learnRuntime.lastTick) / 1000 : 0);
+  learnRuntime.lastTick = timestamp;
+  if (learnRuntime.roundActive && !state.isBusy) {
+    learnRuntime.roundRemainingMs = Math.max(0, learnRuntime.roundRemainingMs - delta * 1000);
+  }
+  updateGifts(delta, timestamp);
+  pruneTrails(timestamp);
+  pruneHitPopup(timestamp);
+  syncArenaDom();
+  drawSlashOverlay();
+  syncLearnHud();
+  if (learnRuntime.roundActive && learnRuntime.roundRemainingMs === 0 && !state.isBusy) {
+    void completeLearnRound();
+    return;
+  }
+  learnRuntime.gameRaf = window.requestAnimationFrame((nextTimestamp) => tickLearnArena(nextTimestamp));
+}
+
+function updateGifts(delta, timestamp) {
+  if (!state.isBusy && learnRuntime.roundActive) maybeSpawnGift(timestamp);
+
+  for (const gift of learnRuntime.gifts) {
+    if (gift.state === "burst") continue;
+    gift.x += gift.vx * delta;
+    gift.y += gift.vy * delta;
+    gift.vy += 1.18 * delta;
+    gift.rotation += gift.vr * delta;
+  }
+
+  learnRuntime.gifts = learnRuntime.gifts.filter((gift) => {
+    if (gift.state === "burst") {
+      return timestamp - gift.hitAt < 420;
+    }
+    return gift.x > -0.18 && gift.x < 1.18 && gift.y < 1.28;
+  });
+}
+
+function maybeSpawnGift(timestamp) {
+  const activeCount = learnRuntime.gifts.filter((gift) => gift.state !== "burst").length;
+  if (activeCount >= 3) return;
+  if (timestamp - learnRuntime.lastSpawnAt < 920) return;
+  learnRuntime.lastSpawnAt = timestamp;
+  learnRuntime.gifts.push(createGift());
+}
+
+function createGift() {
+  const id = learnRuntime.nextGiftId++;
+  const wordIndex = learnRuntime.spawnCursor % words.length;
+  learnRuntime.spawnCursor += 1;
+  const fromLeft = Math.random() > 0.5;
+  const x = fromLeft ? 0.18 + Math.random() * 0.18 : 0.64 + Math.random() * 0.18;
+  return {
+    id,
+    wordIndex,
+    icon: PACKAGE_ICONS[id % PACKAGE_ICONS.length],
+    x,
+    y: 1.08,
+    vx: fromLeft ? 0.24 + Math.random() * 0.16 : -(0.24 + Math.random() * 0.16),
+    vy: -(0.94 + Math.random() * 0.16),
+    vr: (Math.random() - 0.5) * 180,
+    rotation: Math.random() * 40 - 20,
+    radius: 0.095,
+    state: "flying",
+    hitAt: 0
+  };
+}
+
+function syncArenaDom() {
+  const arena = learnRuntime.elements.arena;
+  if (!arena) return;
+  const presentIds = new Set();
+
+  for (const gift of learnRuntime.gifts) {
+    presentIds.add(gift.id);
+    let node = learnRuntime.giftNodes.get(gift.id);
+    if (!node) {
+      node = document.createElement("article");
+      node.className = "gift-node";
+      node.innerHTML = `
+        <div class="gift-core">
+          <span class="gift-icon"></span>
+          <b class="gift-title">Surprise</b>
+          <small class="gift-sub">Slice me</small>
+        </div>
+      `;
+      arena.appendChild(node);
+      learnRuntime.giftNodes.set(gift.id, node);
+    }
+    if (node.parentElement !== arena) {
+      arena.appendChild(node);
+    }
+    const word = words[gift.wordIndex];
+    node.className = `gift-node ${gift.state === "burst" ? "is-burst" : ""}`;
+    node.style.left = `${gift.x * 100}%`;
+    node.style.top = `${gift.y * 100}%`;
+    node.style.transform = `translate(-50%, -50%) rotate(${gift.rotation}deg) scale(${gift.state === "burst" ? 1.12 : 1})`;
+    node.style.setProperty("--gift", word.color);
+    node.style.setProperty("--accent", word.accent);
+    node.querySelector(".gift-icon").textContent = gift.state === "burst" ? word.emoji : gift.icon;
+    node.querySelector(".gift-title").textContent = gift.state === "burst" ? word.english : "Surprise";
+    node.querySelector(".gift-sub").textContent = gift.state === "burst" ? word.chinese : "Slice me";
+  }
+
+  for (const [id, node] of Array.from(learnRuntime.giftNodes.entries())) {
+    if (presentIds.has(id)) continue;
+    node.remove();
+    learnRuntime.giftNodes.delete(id);
+  }
+}
+
+function syncArenaCanvasSize() {
+  const canvas = learnRuntime.elements.slashCanvas;
+  const arena = learnRuntime.elements.arena;
+  if (!canvas || !arena) return;
+  const rect = arena.getBoundingClientRect();
+  const width = Math.max(1, Math.round(rect.width));
+  const height = Math.max(1, Math.round(rect.height));
+  if (canvas.width !== width) canvas.width = width;
+  if (canvas.height !== height) canvas.height = height;
+}
+
+function pruneTrails(timestamp) {
+  learnRuntime.slashTrails = learnRuntime.slashTrails.filter((trail) => timestamp - trail.createdAt < 420);
+}
+
+function drawSlashOverlay() {
+  const canvas = learnRuntime.elements.slashCanvas;
+  if (!canvas) return;
+  syncArenaCanvasSize();
+  const ctx = canvas.getContext("2d");
+  if (!ctx) return;
+  ctx.clearRect(0, 0, canvas.width, canvas.height);
+
+  for (const trail of learnRuntime.slashTrails) {
+    const age = performance.now() - trail.createdAt;
+    const alpha = Math.max(0, 1 - age / 420);
+    if (trail.points.length < 2 || alpha <= 0) continue;
+
+    ctx.lineCap = "round";
+    ctx.lineJoin = "round";
+    ctx.strokeStyle = `rgba(126, 249, 255, ${0.5 * alpha})`;
+    ctx.shadowColor = `rgba(180, 252, 255, ${0.8 * alpha})`;
+    ctx.shadowBlur = 34;
+    ctx.lineWidth = 18 * alpha + 6;
+    ctx.beginPath();
+    trail.points.forEach((point, index) => {
+      const x = point.x * canvas.width;
+      const y = point.y * canvas.height;
+      if (index === 0) ctx.moveTo(x, y);
+      else ctx.lineTo(x, y);
+    });
+    ctx.stroke();
+
+    trail.points.forEach((point, index) => {
+      const x = point.x * canvas.width;
+      const y = point.y * canvas.height;
+      const progress = trail.points.length <= 1 ? 1 : index / (trail.points.length - 1);
+      const radius = (1 - progress * 0.4) * (20 * alpha + 8);
+      const gradient = ctx.createRadialGradient(x, y, 0, x, y, radius);
+      gradient.addColorStop(0, `rgba(255, 255, 255, ${0.98 * alpha})`);
+      gradient.addColorStop(0.22, `rgba(255, 245, 186, ${0.88 * alpha})`);
+      gradient.addColorStop(0.48, `rgba(126, 249, 255, ${0.82 * alpha})`);
+      gradient.addColorStop(1, "rgba(126, 249, 255, 0)");
+      ctx.fillStyle = gradient;
+      ctx.beginPath();
+      ctx.arc(x, y, radius, 0, Math.PI * 2);
+      ctx.fill();
+    });
+
+    ctx.strokeStyle = `rgba(255, 255, 255, ${0.7 * alpha})`;
+    ctx.shadowColor = `rgba(255, 255, 255, ${0.7 * alpha})`;
+    ctx.shadowBlur = 26;
+    ctx.lineWidth = 5 * alpha + 1.5;
+    ctx.beginPath();
+    trail.points.forEach((point, index) => {
+      const x = point.x * canvas.width;
+      const y = point.y * canvas.height;
+      if (index === 0) ctx.moveTo(x, y);
+      else ctx.lineTo(x, y);
+    });
+    ctx.stroke();
+  }
+}
+
+async function handleLearnSlash(payload) {
+  if (state.screen !== "learn") return;
+  learnRuntime.slashTrails.push({
+    createdAt: performance.now(),
+    points: payload.path
+  });
+
+  if (state.isBusy || !learnRuntime.roundActive) return;
+
+  const hitGift = findHitGift(payload.path);
+  if (!hitGift) return;
+
+  const timestamp = performance.now();
+  hitGift.state = "burst";
+  hitGift.hitAt = timestamp;
+  learnRuntime.lastHitIndex = hitGift.wordIndex;
+  state.learningIndex = hitGift.wordIndex;
+  learnRuntime.hitPopup = {
+    wordIndex: hitGift.wordIndex,
+    expiresAt: timestamp + 900
+  };
+  collectRoundWord(hitGift.wordIndex);
+  playHitWord(words[hitGift.wordIndex]);
+  syncArenaDom();
+  syncLearnHud();
+  syncRoundCollection();
+}
+
+function findHitGift(path) {
+  let bestGift = null;
+  let bestDistance = Infinity;
+
+  for (const gift of learnRuntime.gifts) {
+    if (gift.state !== "flying") continue;
+    const center = { x: gift.x, y: gift.y };
+
+    for (let i = 1; i < path.length; i += 1) {
+      const start = path[i - 1];
+      const end = path[i];
+      const distanceToGift = pointToSegmentDistance(center, start, end);
+      if (distanceToGift <= gift.radius && distanceToGift < bestDistance) {
+        bestDistance = distanceToGift;
+        bestGift = gift;
+      }
+    }
+  }
+
+  return bestGift;
+}
+
+function pointToSegmentDistance(point, start, end) {
+  const segmentX = end.x - start.x;
+  const segmentY = end.y - start.y;
+  if (!segmentX && !segmentY) return Math.hypot(point.x - start.x, point.y - start.y);
+  const t = Math.max(0, Math.min(1, ((point.x - start.x) * segmentX + (point.y - start.y) * segmentY) / (segmentX ** 2 + segmentY ** 2)));
+  const projectionX = start.x + segmentX * t;
+  const projectionY = start.y + segmentY * t;
+  return Math.hypot(point.x - projectionX, point.y - projectionY);
 }
 
 async function playCurrentLearning() {
   const runId = ++state.runId;
   const current = words[state.learningIndex] || words[0];
   state.isBusy = true;
+  if (state.screen === "learn") {
+    pauseLearnArena();
+    learnRuntime.detector?.setPaused(true);
+  }
   render();
   const completed = await speakLearningScript(current);
-  if (!completed || runId !== state.runId) return;
   if (runId !== state.runId) return;
-  state.learned.add(current.id);
-  render();
-  await delay(5000);
-  if (runId !== state.runId) return;
-  if (state.learningIndex < words.length - 1) {
-    state.learningIndex += 1;
-    render();
-    await playCurrentLearning();
-    return;
-  }
+  if (completed) state.learned.add(current.id);
   state.isBusy = false;
   render();
+  if (state.screen === "learn") resumeLearnArena();
 }
 
-function nextLearn() {
-  state.runId += 1;
-  stopSpeech();
-  state.isBusy = false;
-  state.learningIndex = Math.min(words.length - 1, state.learningIndex + 1);
+async function reviewCurrentRound() {
+  if (state.screen !== "learn" || state.isBusy || !learnRuntime.collectedOrder.length) return;
+  await completeLearnRound();
+}
+
+async function completeLearnRound() {
+  if (state.screen !== "learn" || state.isBusy) return;
+  const reviewQueue = learnRuntime.collectedOrder.slice(0, MAX_REVIEW_WORDS);
+  const runId = ++state.runId;
+  state.isBusy = true;
+  learnRuntime.reviewing = true;
+  learnRuntime.roundActive = false;
+  pauseLearnArena();
+  learnRuntime.detector?.setPaused(true);
   render();
-  playCurrentLearning();
+
+  if (!reviewQueue.length) {
+    await wait(900);
+    if (runId !== state.runId || state.screen !== "learn") return;
+    state.isBusy = false;
+    learnRuntime.reviewing = false;
+    startNewLearnRound();
+    render();
+    resumeLearnArena();
+    return;
+  }
+
+  for (const wordIndex of reviewQueue) {
+    if (runId !== state.runId || state.screen !== "learn") return;
+    const current = words[wordIndex];
+    state.learningIndex = wordIndex;
+    syncLearnHud();
+    const completed = await speakLearningScript(current);
+    if (runId !== state.runId || state.screen !== "learn") return;
+    if (completed) state.learned.add(current.id);
+  }
+
+  if (runId !== state.runId || state.screen !== "learn") return;
+  state.isBusy = false;
+  learnRuntime.reviewing = false;
+  startNewLearnRound();
+  render();
+  resumeLearnArena();
 }
 
 async function listenForWord() {
@@ -337,8 +1409,156 @@ function introLine(word) {
   return lines[word.id] || `I am ${word.english}.`;
 }
 
-function delay(ms) {
+function startNewLearnRound() {
+  learnRuntime.roundNumber += 1;
+  learnRuntime.roundActive = true;
+  learnRuntime.roundRemainingMs = ROUND_DURATION_MS;
+  learnRuntime.collectedOrder = [];
+  learnRuntime.collectedSet = new Set();
+  learnRuntime.hitPopup = null;
+  learnRuntime.gifts = [];
+  learnRuntime.lastSpawnAt = 0;
+  learnRuntime.lastTick = 0;
+  learnRuntime.slashTrails = [];
+  learnRuntime.giftNodes.forEach((node) => node.remove());
+  learnRuntime.giftNodes.clear();
+  syncArenaDom();
+  drawSlashOverlay();
+  syncLearnHud();
+  syncRoundCollection();
+}
+
+function collectRoundWord(wordIndex) {
+  if (learnRuntime.collectedSet.has(wordIndex)) return false;
+  learnRuntime.collectedSet.add(wordIndex);
+  learnRuntime.collectedOrder.push(wordIndex);
+  return true;
+}
+
+function pruneHitPopup(timestamp) {
+  if (!learnRuntime.hitPopup) return;
+  if (timestamp < learnRuntime.hitPopup.expiresAt) return;
+  learnRuntime.hitPopup = null;
+}
+
+function getRoundSecondsLeft() {
+  return Math.max(0, Math.ceil(learnRuntime.roundRemainingMs / 1000));
+}
+
+function getLearnStageLabel() {
+  if (state.isBusy && learnRuntime.reviewing) {
+    return `本轮复习中，按顺序学习 ${Math.min(learnRuntime.collectedOrder.length, MAX_REVIEW_WORDS)} 个单词`;
+  }
+  if (state.isBusy) return "讲解中，礼包暂停飞入";
+  if (!learnRuntime.roundActive) return "这一轮结束了，马上进入下一轮。";
+  return `${getRoundSecondsLeft()}s 后统一学习本轮词卡`;
+}
+
+function syncLearnHud() {
+  const current = words[state.learningIndex] || words[0];
+  const latestWord = learnRuntime.lastHitIndex == null ? "-" : words[learnRuntime.lastHitIndex].english;
+
+  if (learnRuntime.elements.scoreLearned) learnRuntime.elements.scoreLearned.textContent = String(state.learned.size);
+  if (learnRuntime.elements.scoreRound) learnRuntime.elements.scoreRound.textContent = String(learnRuntime.collectedOrder.length);
+  if (learnRuntime.elements.scoreLatest) learnRuntime.elements.scoreLatest.textContent = latestWord;
+  if (learnRuntime.elements.scoreTimer) learnRuntime.elements.scoreTimer.textContent = `${getRoundSecondsLeft()}s`;
+  if (learnRuntime.elements.stageLabel) learnRuntime.elements.stageLabel.textContent = getLearnStageLabel();
+  if (learnRuntime.elements.reviewButton) {
+    learnRuntime.elements.reviewButton.disabled = state.isBusy || !learnRuntime.collectedOrder.length;
+  }
+  if (learnRuntime.elements.spotlightCard) {
+    learnRuntime.elements.spotlightCard.dataset.word = current.id;
+    learnRuntime.elements.spotlightCard.style.setProperty("--card", current.color);
+    learnRuntime.elements.spotlightCard.style.setProperty("--accent", current.accent);
+    const frame = learnRuntime.elements.spotlightCard.querySelector(".image-frame");
+    if (frame) frame.setAttribute("aria-label", `${current.english} image`);
+  }
+  if (learnRuntime.elements.spotlightEmoji) learnRuntime.elements.spotlightEmoji.textContent = current.emoji;
+  if (learnRuntime.elements.spotlightEnglish) learnRuntime.elements.spotlightEnglish.textContent = current.english;
+  if (learnRuntime.elements.spotlightChinese) learnRuntime.elements.spotlightChinese.textContent = current.chinese;
+  syncHitPopup();
+}
+
+function syncRoundCollection() {
+  const container = learnRuntime.elements.roundCollection;
+  if (!container) return;
+  if (!learnRuntime.collectedOrder.length) {
+    container.innerHTML = `<div class="round-collection-empty">这一轮先随便挥，切中的单词会收进这里。</div>`;
+    return;
+  }
+  container.innerHTML = learnRuntime.collectedOrder
+    .slice(0, MAX_REVIEW_WORDS)
+    .map((wordIndex) => compactCard(words[wordIndex], true, true))
+    .join("");
+}
+
+function syncHitPopup() {
+  const popup = learnRuntime.elements.popup;
+  if (!popup) return;
+  if (!learnRuntime.hitPopup) {
+    popup.className = "hit-popup";
+    popup.innerHTML = "";
+    return;
+  }
+  const word = words[learnRuntime.hitPopup.wordIndex];
+  popup.className = "hit-popup is-visible";
+  popup.innerHTML = `<b>${word.english}</b><span>${word.chinese}</span>`;
+}
+
+function playHitWord(word) {
+  if (!word?.english || state.isBusy) return;
+  void speak(word.english, {
+    lang: "en-US",
+    rate: 0.8,
+    style: "learn-hit",
+    pause: 40
+  }).catch(() => {});
+}
+
+function wait(ms) {
   return new Promise((resolve) => window.setTimeout(resolve, ms));
+}
+
+function clamp(value, min, max) {
+  return Math.min(max, Math.max(min, value));
+}
+
+function normalizeJumpWord(value) {
+  return value.toLowerCase().replace(/[^a-z]/g, "");
+}
+
+function getCurrentJumpTargetLetter() {
+  return jumpRuntime.currentSpelling[jumpRuntime.currentLetterIndex] || "";
+}
+
+function formatJumpProgress() {
+  if (!jumpRuntime.currentSpelling) return "-";
+  return jumpRuntime.currentSpelling
+    .split("")
+    .map((letter, index) => (index < jumpRuntime.currentLetterIndex ? letter.toUpperCase() : "_"))
+    .join("");
+}
+
+function repeatJumpLetter(letter) {
+  const upper = letter.toUpperCase();
+  return `${upper}, ${upper}, ${upper}`;
+}
+
+function shuffleLetters(list) {
+  const next = [...list];
+  for (let index = next.length - 1; index > 0; index -= 1) {
+    const swapIndex = Math.floor(Math.random() * (index + 1));
+    [next[index], next[swapIndex]] = [next[swapIndex], next[index]];
+  }
+  return next;
+}
+
+function computeJumpGiftSlots(count) {
+  if (count <= 1) return [0.5];
+  const start = 0.12;
+  const end = 0.88;
+  const step = (end - start) / (count - 1);
+  return Array.from({ length: count }, (_, index) => start + step * index);
 }
 
 render();
