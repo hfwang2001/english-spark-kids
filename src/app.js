@@ -15,13 +15,20 @@ const state = {
   correct: new Set(),
   transcript: "",
   isBusy: false,
-  runId: 0
+  runId: 0,
+  jumpMastered: new Set(),  // 记录"跳跳开礼包"中成功拼对的单词ID
+  jumpRoundCount: 0,         // 当前跳跳环节已完成的单词数
+  learnRoundCount: 0,       // 当前背单词环节已完成的词数
+  cyclePhase: "jump",        // 当前循环阶段：jump 或 learn
+  allWordsLearned: false    // 是否所有单词都已学习
 };
 
 const PACKAGE_ICONS = ["🎁", "🎀", "📦", "🎉", "🪅", "🎊"];
 const ROUND_DURATION_MS = 60000;
 const MAX_REVIEW_WORDS = 6;
 const JUMP_MAX_LETTERS = 6;
+const ROUND_WORD_COUNT = 5;  // 每轮学习5个单词后切换环节
+const TOTAL_WORDS = words.length;
 
 const learnRuntime = {
   detector: null,
@@ -156,8 +163,8 @@ function renderHeader() {
         <span>English Spark</span>
       </button>
       <nav class="tabs" aria-label="游戏步骤">
-        ${tabButton("learn", "背单词", "1")}
-        ${tabButton("jump", "跳跳开礼包", "2")}
+        ${tabButton("jump", "跳跳开礼包", "1")}
+        ${tabButton("learn", "背单词", "2")}
         ${tabButton("quiz", "听读闯关", "3")}
         ${tabButton("summary", "学习总结", "4")}
       </nav>
@@ -192,7 +199,7 @@ function renderHome() {
         <h1>Flash Card<br>Learning</h1>
         <p class="hero-sub">20 words. Listen, repeat, play.</p>
         <div class="hero-actions">
-          <button class="primary" data-action="learn">开始背单词</button>
+          <button class="primary" data-action="jump">开始学习</button>
           <button class="secondary" data-action="quiz">直接闯关</button>
         </div>
       </div>
@@ -214,14 +221,21 @@ function renderLearn() {
     .join("");
   
   // 获取匹配模式的词卡
+  const masteredCount = state.jumpMastered.size;
   const matchCardsHtml = learnRuntime.currentWordSet.length > 0
     ? learnRuntime.currentWordSet.map((word, index) => matchingCardHtml(word, index, learnRuntime.correctIndex, learnRuntime.matched)).join("")
-    : "<p style='color:#fff;text-align:center;padding:40px;'>加载词卡中...</p>";
+    : `<div style="color:#7ef9ff;text-align:center;padding:60px;background:rgba(126,249,255,0.1);border-radius:20px;margin:20px;">
+        <p style="font-size:24px;margin:0 0 16px;">🎯 先完成"跳跳开礼包"</p>
+        <p style="font-size:16px;margin:0;opacity:0.8;">完成字母拼读后，这里会出现对应单词的匹配题</p>
+        <p style="font-size:14px;margin:20px 0 0;opacity:0.6;">已掌握: ${masteredCount} 个单词</p>
+       </div>`;
   
   // 获取目标 emoji
   const targetEmojiHtml = learnRuntime.targetEmoji 
     ? `<div class="match-target-emoji">${learnRuntime.targetEmoji.emoji}</div>` 
-    : `<div class="match-target-emoji">❓</div>`;
+    : masteredCount > 0 
+      ? `<div class="match-target-emoji" style="opacity:0.3;">🎯</div>` 
+      : `<div class="match-target-emoji" style="opacity:0.3;">🔒</div>`;
   
   // 匹配结果提示
   const matchResultHtml = learnRuntime.matchResult 
@@ -966,6 +980,8 @@ async function completeJumpSpellingWord() {
       if (ok) {
         state.learned.add(word.id);
         state.correct.add(word.id);
+        // 记录成功拼对的单词，用于"背单词"模式
+        state.jumpMastered.add(word.id);
         await speak("Great job!", { lang: "en-US", rate: 0.82, style: "reward" });
       } else {
         await speak(`The word is ${word.english}`, { lang: "en-US", rate: 0.78, style: "jump-repeat" });
@@ -981,6 +997,34 @@ async function completeJumpSpellingWord() {
   if (runId !== state.runId || state.screen !== "jump") return;
   state.isBusy = false;
   jumpRuntime.detector?.setPaused(false);
+  
+  // 更新计数
+  state.jumpRoundCount++;
+  
+  // 检查是否完成5个单词
+  if (state.jumpRoundCount >= ROUND_WORD_COUNT) {
+    // 重置计数
+    state.jumpRoundCount = 0;
+    // 检查是否所有单词都已学习
+    if (state.learned.size >= TOTAL_WORDS) {
+      state.allWordsLearned = true;
+      // 所有单词学完，提示用户
+      jumpRuntime.lessonStatus = "🎉 恭喜！所有单词都已学习完毕！";
+      syncJumpFlashcard();
+      return;
+    }
+    // 切换到"背单词"环节
+    state.cyclePhase = "learn";
+    jumpRuntime.lessonStatus = "跳跳环节完成，准备进入背单词环节...";
+    syncJumpFlashcard();
+    wait(1500).then(() => {
+      if (state.screen === "jump") {
+        navigateTo("learn");
+      }
+    });
+    return;
+  }
+  
   setupNextJumpWord();
 }
 
@@ -1264,24 +1308,44 @@ function drawSlashOverlay() {
 // ============== 匹配模式核心逻辑 ==============
 
 // 生成4张随机词卡，其中1张正确
+// 规则：正确答案必须来自"跳跳开礼包"成功拼对的单词，其他3张可以是任意单词
 function generateMatchSet() {
-  const shuffled = [...words].sort(() => Math.random() - 0.5);
-  const correctWord = shuffled[0];
-  const wordSet = shuffled.slice(0, 4);
-  const correctIndex = 0; // 第一张是正确答案
+  // 获取已掌握的单词（来自"跳跳开礼包"）
+  const masteredWords = [...state.jumpMastered].map(id => words.find(w => w.id === id)).filter(Boolean);
   
-  // 打乱顺序
+  // 如果没有掌握任何单词，显示提示
+  if (masteredWords.length === 0) {
+    learnRuntime.targetEmoji = null;
+    learnRuntime.currentWordSet = [];
+    learnRuntime.correctIndex = -1;
+    learnRuntime.matched = false;
+    learnRuntime.matchResult = null;
+    return;
+  }
+  
+  // 随机选择一个正确答案
+  const correctWord = masteredWords[Math.floor(Math.random() * masteredWords.length)];
+  
+  // 获取其他单词（不能包含正确答案）
+  const otherWords = words.filter(w => w.id !== correctWord.id);
+  const shuffledOther = [...otherWords].sort(() => Math.random() - 0.5);
+  
+  // 选择3个干扰项
+  const wrongWords = shuffledOther.slice(0, 3);
+  
+  // 组合词卡并打乱顺序
+  const wordSet = [correctWord, ...wrongWords];
   for (let i = wordSet.length - 1; i > 0; i--) {
     const j = Math.floor(Math.random() * (i + 1));
     [wordSet[i], wordSet[j]] = [wordSet[j], wordSet[i]];
   }
   
-  // 找到正确词卡的新位置
-  const newCorrectIndex = wordSet.findIndex(w => w.id === correctWord.id);
+  // 找到正确词卡的位置
+  const correctIndex = wordSet.findIndex(w => w.id === correctWord.id);
   
   learnRuntime.targetEmoji = correctWord;
   learnRuntime.currentWordSet = wordSet;
-  learnRuntime.correctIndex = newCorrectIndex;
+  learnRuntime.correctIndex = correctIndex;
   learnRuntime.matched = false;
   learnRuntime.matchResult = null;
 }
@@ -1342,9 +1406,33 @@ async function playMatchSuccessAudio(word) {
   await speak(word.chinese, { lang: "zh-CN", rate: 0.85, pause: 50 });
   if (runId !== state.runId) return;
   
+  // 更新计数
+  state.learnRoundCount++;
+  
   // 停留0.75秒
   await wait(750);
   if (runId !== state.runId) return;
+  
+  // 检查是否完成5个单词
+  if (state.learnRoundCount >= ROUND_WORD_COUNT) {
+    // 重置计数
+    state.learnRoundCount = 0;
+    // 检查是否所有单词都已学习
+    if (state.learned.size >= TOTAL_WORDS) {
+      state.allWordsLearned = true;
+      // 所有单词学完，提示用户
+      await speak("🎉 恭喜！所有单词都已学习完毕！", { lang: "zh-CN", rate: 0.85 });
+      return;
+    }
+    // 切换到"跳跳开礼包"环节
+    state.cyclePhase = "jump";
+    await speak("背单词环节完成，准备进入跳跳开礼包环节...", { lang: "zh-CN", rate: 0.85 });
+    if (runId !== state.runId) return;
+    await wait(1500);
+    if (runId !== state.runId) return;
+    navigateTo("jump");
+    return;
+  }
   
   // 自动下一题
   generateMatchSet();
