@@ -30,11 +30,16 @@ const learnRuntime = {
   roundActive: false,
   gameRaf: 0,
   lastTick: 0,
-  lastSpawnAt: 0,
+  // 新的匹配学习模式
+  matchingMode: true,  // 使用新的匹配模式
+  targetEmoji: null,   // 目标 emoji
+  currentWordSet: [],   // 当前4张词卡
+  correctIndex: -1,     // 正确词卡的索引
+  matched: false,      // 是否已匹配成功
+  matchResult: null,    // 匹配结果
+  // 旧的礼包模式保留（备用）
   nextGiftId: 1,
   spawnCursor: 0,
-  roundNumber: 0,
-  roundRemainingMs: ROUND_DURATION_MS,
   collectedOrder: [],
   collectedSet: new Set(),
   gifts: [],
@@ -60,11 +65,26 @@ const learnRuntime = {
     spotlightEmoji: null,
     spotlightEnglish: null,
     spotlightChinese: null,
-    roundCollection: null
+    roundCollection: null,
+    // 新的匹配模式元素
+    targetEmojiDisplay: null,
+    cardContainer: null,
+    cardNodes: new Map()
   },
-  gestureStatus: "打开摄像头后，直接大幅挥动手臂，像切水果一样切开礼包。",
+  gestureStatus: "打开摄像头后，屏幕下方有4张词卡，上方有1个emoji，找出对应的那张词卡，大幅挥手臂切中它！",
   debugText: ""
 };
+
+// 匹配模式词卡位置配置（屏幕中下方）
+const CARD_POSITIONS = [
+  { x: 0.18, y: 0.82 },  // 左
+  { x: 0.38, y: 0.82 },  // 中左
+  { x: 0.62, y: 0.82 },  // 中右
+  { x: 0.82, y: 0.82 }   // 右
+];
+
+// emoji 显示位置（屏幕中央偏上）
+const EMOJI_POSITION = { x: 0.5, y: 0.28 };
 
 const jumpRuntime = {
   detector: null,
@@ -181,32 +201,48 @@ function renderHome() {
 }
 
 function renderLearn() {
+  // 确保进入页面时初始化词卡
+  if (learnRuntime.matchingMode && learnRuntime.currentWordSet.length === 0) {
+    generateMatchSet();
+  }
+  
   const current = words[state.learningIndex] || words[0];
   const latestWord = learnRuntime.lastHitIndex == null ? "-" : words[learnRuntime.lastHitIndex].english;
   const learnedWords = words.filter((word) => state.learned.has(word.id));
   const learnedPreview = (learnedWords.length ? learnedWords : words.slice(0, 6))
     .map((word) => compactCard(word, true, state.learned.has(word.id)))
     .join("");
-  const roundCollection = learnRuntime.collectedOrder.length
-    ? learnRuntime.collectedOrder
-      .slice(0, MAX_REVIEW_WORDS)
-      .map((wordIndex) => compactCard(words[wordIndex], true, true))
-      .join("")
-    : `<div class="round-collection-empty">这一轮先随便挥，切中的单词会收进这里。</div>`;
+  
+  // 获取匹配模式的词卡
+  const matchCardsHtml = learnRuntime.currentWordSet.length > 0
+    ? learnRuntime.currentWordSet.map((word, index) => matchingCardHtml(word, index, learnRuntime.correctIndex, learnRuntime.matched)).join("")
+    : "<p style='color:#fff;text-align:center;padding:40px;'>加载词卡中...</p>";
+  
+  // 获取目标 emoji
+  const targetEmojiHtml = learnRuntime.targetEmoji 
+    ? `<div class="match-target-emoji">${learnRuntime.targetEmoji.emoji}</div>` 
+    : `<div class="match-target-emoji">❓</div>`;
+  
+  // 匹配结果提示
+  const matchResultHtml = learnRuntime.matchResult 
+    ? `<div class="match-result ${learnRuntime.matchResult.success ? 'is-success' : 'is-fail'}">
+        <span class="match-result-emoji">${learnRuntime.matchResult.success ? '🎉' : '❌'}</span>
+        <span class="match-result-word">${learnRuntime.matchResult.word.english}</span>
+        <span class="match-result-chinese">${learnRuntime.matchResult.word.chinese}</span>
+       </div>`
+    : "";
 
   return `
     <section class="learn-layout arcade-learn">
       <div class="learn-stage-head">
         <div>
-          <p class="eyebrow">Slice To Learn</p>
-          <h1>挥砍礼包舞台</h1>
-          <p class="learn-stage-copy">先玩 1 分钟礼包雨。切中后只弹大字和音效，不停下来；时间到了再把这一轮收集到的单词统一学一遍。</p>
+          <p class="eyebrow">Match To Learn</p>
+          <h1>匹配学习</h1>
+          <p class="learn-stage-copy">屏幕上方显示一个emoji，下方有4张词卡，找出对应的词卡并大幅挥手臂切中它！</p>
         </div>
         <div class="learn-scoreboard">
           <span><b id="learn-score-learned">${state.learned.size}</b> 已学会</span>
-          <span><b id="learn-score-round">${learnRuntime.collectedOrder.length}</b> 本轮收集</span>
-          <span><b id="learn-score-latest">${latestWord}</b> 最新切开</span>
-          <span><b id="learn-score-timer">${getRoundSecondsLeft()}s</b> 本轮剩余</span>
+          <span><b>${learnRuntime.matched ? '✓' : '-'}</b> 本轮匹配</span>
         </div>
       </div>
 
@@ -216,21 +252,32 @@ function renderLearn() {
             <span class="wheel-status-dot"></span>
             <strong id="learn-stage-label">${getLearnStageLabel()}</strong>
           </div>
+          
+          <!-- 姿态检测层 + 匹配舞台 -->
           <div class="slash-stage">
-            <div class="slash-stage-copy">
-              <span>礼包雨</span>
-              <b>Fruit Ninja For Words</b>
-            </div>
             <video id="learn-video" class="hidden-pose-video" autoplay muted playsinline></video>
             <canvas id="learn-overlay" class="pose-stage-overlay"></canvas>
-            <div class="gift-arena" id="learn-arena">
-              <canvas id="learn-slash-overlay" class="slash-overlay"></canvas>
+            <canvas id="learn-slash-overlay" class="slash-overlay"></canvas>
+            
+            <!-- 匹配模式覆盖层 -->
+            <div class="match-overlay" id="learn-match-stage">
+              <!-- 目标 emoji 区域 -->
+              <div class="match-emoji-area">
+                ${targetEmojiHtml}
+              </div>
+              
+              <!-- 词卡区域 -->
+              <div class="match-cards-area" id="learn-card-container">
+                ${matchCardsHtml}
+              </div>
+              
+              <!-- 匹配结果 -->
+              ${matchResultHtml}
             </div>
-            <div id="learn-hit-popup" class="hit-popup" aria-live="polite"></div>
           </div>
+          
           <div class="learn-controls">
-            <button class="primary" data-action="play-current" ${state.isBusy ? "disabled" : ""}>重播当前词卡</button>
-            <button class="secondary" data-action="review-round" id="learn-review-button" ${state.isBusy || !learnRuntime.collectedOrder.length ? "disabled" : ""}>立即复习本轮</button>
+            <button class="primary" data-action="next-match" ${state.isBusy ? "disabled" : ""}>下一题</button>
             <button class="secondary" data-action="retry-camera">重新打开摄像头</button>
           </div>
           <div class="stage-tracking-bar">
@@ -248,31 +295,30 @@ function renderLearn() {
         </section>
       </div>
 
-      <article id="learn-spotlight-card" class="spotlight-card learn-spotlight" data-word="${current.id}" style="--card:${current.color};--accent:${current.accent}">
-        ${cardImage(current, "learn-spotlight-emoji")}
-        <div class="word-meta">
-          <p class="eyebrow">Latest Surprise</p>
-          <h2 id="learn-spotlight-english">${current.english}</h2>
-          <p id="learn-spotlight-chinese">${current.chinese}</p>
-        </div>
-        <div class="card-sparkles"><i></i><i></i><i></i></div>
-      </article>
-
-      <section class="round-collection-panel">
-        <div class="round-collection-head">
-          <p class="eyebrow">Round Loot</p>
-          <h2>这一轮收集到的单词</h2>
-          <p>回合结束后，我们会按照这里的顺序统一学一遍。</p>
-        </div>
-        <div id="learn-round-collection" class="ribbon-grid round-collection-grid">
-          ${roundCollection}
-        </div>
-      </section>
-
       <div class="ribbon-grid learned-preview">
         ${learnedPreview}
       </div>
     </section>
+  `;
+}
+
+// 生成匹配模式的词卡HTML
+function matchingCardHtml(word, index, correctIndex, matched) {
+  const isCorrect = index === correctIndex;
+  const showEmoji = matched && isCorrect;
+  return `
+    <article class="match-card ${isCorrect && matched ? 'is-correct' : ''}" 
+             data-index="${index}" 
+             data-word-id="${word.id}"
+             style="--card:${word.color};--accent:${word.accent}">
+      <div class="match-card-inner">
+        ${showEmoji ? `<div class="match-card-emoji">${word.emoji}</div>` : ''}
+        <div class="match-card-text">
+          <b>${word.english}</b>
+          <small>${word.chinese}</small>
+        </div>
+      </div>
+    </article>
   `;
 }
 
@@ -607,6 +653,7 @@ async function handleAction(action) {
   if (action === "review-round") await reviewCurrentRound();
   if (action === "retry-camera") await retryLearnCamera();
   if (action === "retry-jump-camera") await retryJumpCamera();
+  if (action === "next-match") await nextMatch();
 }
 
 function navigateTo(screen) {
@@ -627,7 +674,12 @@ function navigateTo(screen) {
 async function startLearnExperience() {
   ensureLearnRuntime();
   mountLearnRuntime();
-  if (!learnRuntime.roundActive && !learnRuntime.reviewing) startNewLearnRound();
+  
+  // 匹配模式初始化
+  if (learnRuntime.matchingMode && learnRuntime.currentWordSet.length === 0) {
+    initMatchingMode();
+  }
+  
   resumeLearnArena();
   await learnRuntime.detector.start();
 }
@@ -1209,12 +1261,158 @@ function drawSlashOverlay() {
   }
 }
 
+// ============== 匹配模式核心逻辑 ==============
+
+// 生成4张随机词卡，其中1张正确
+function generateMatchSet() {
+  const shuffled = [...words].sort(() => Math.random() - 0.5);
+  const correctWord = shuffled[0];
+  const wordSet = shuffled.slice(0, 4);
+  const correctIndex = 0; // 第一张是正确答案
+  
+  // 打乱顺序
+  for (let i = wordSet.length - 1; i > 0; i--) {
+    const j = Math.floor(Math.random() * (i + 1));
+    [wordSet[i], wordSet[j]] = [wordSet[j], wordSet[i]];
+  }
+  
+  // 找到正确词卡的新位置
+  const newCorrectIndex = wordSet.findIndex(w => w.id === correctWord.id);
+  
+  learnRuntime.targetEmoji = correctWord;
+  learnRuntime.currentWordSet = wordSet;
+  learnRuntime.correctIndex = newCorrectIndex;
+  learnRuntime.matched = false;
+  learnRuntime.matchResult = null;
+}
+
+// 初始化匹配模式
+function initMatchingMode() {
+  if (learnRuntime.currentWordSet.length === 0) {
+    generateMatchSet();
+  }
+}
+
+// 处理匹配挥砍
+async function handleMatchSlash(payload) {
+  const hitCardIndex = findHitCardIndex(payload.path);
+  if (hitCardIndex === -1 || learnRuntime.matched) return;
+  
+  const hitWord = learnRuntime.currentWordSet[hitCardIndex];
+  const correctWord = learnRuntime.targetEmoji;
+  const isCorrect = hitWord.id === correctWord.id;
+  
+  learnRuntime.matchResult = {
+    success: isCorrect,
+    word: hitWord,
+    index: hitCardIndex
+  };
+  
+  if (isCorrect) {
+    learnRuntime.matched = true;
+    state.learned.add(correctWord.id);
+    
+    // 显示匹配成功动画
+    render();
+    
+    // 播放匹配成功语音（重复两遍）
+    state.isBusy = true;
+    await playMatchSuccessAudio(correctWord);
+    state.isBusy = false;
+  } else {
+    // 错误选择，提示并重新生成
+    await speak("再试一次，找出对应的词卡！", { lang: "zh-CN", rate: 0.85 });
+    learnRuntime.matchResult = null;
+  }
+}
+
+// 播放匹配成功语音（重复两遍）然后自动下一题
+async function playMatchSuccessAudio(word) {
+  const runId = state.runId;
+  
+  // 第一次：说出单词
+  await speak(word.english, { lang: "en-US", rate: 0.78, style: "reward", pause: 100 });
+  if (runId !== state.runId) return;
+  
+  // 第二次：再次说出单词
+  await speak(word.english, { lang: "en-US", rate: 0.82, style: "reward", pause: 80 });
+  if (runId !== state.runId) return;
+  
+  // 最后说出中文
+  await speak(word.chinese, { lang: "zh-CN", rate: 0.85, pause: 50 });
+  if (runId !== state.runId) return;
+  
+  // 停留0.75秒
+  await wait(750);
+  if (runId !== state.runId) return;
+  
+  // 自动下一题
+  generateMatchSet();
+  render();
+}
+
+// 查找命中的词卡
+function findHitCardIndex(path) {
+  const cardContainer = document.querySelector("#learn-card-container");
+  if (!cardContainer) return -1;
+  
+  const cards = cardContainer.querySelectorAll(".match-card");
+  if (cards.length === 0) return -1;
+  
+  let bestIndex = -1;
+  let bestDistance = Infinity;
+  
+  cards.forEach((card, index) => {
+    const rect = card.getBoundingClientRect();
+    const containerRect = cardContainer.getBoundingClientRect();
+    
+    // 计算词卡中心点（相对于容器的比例）
+    const cardCenterX = (rect.left - containerRect.left + rect.width / 2) / containerRect.width;
+    const cardCenterY = (rect.top - containerRect.top + rect.height / 2) / containerRect.height;
+    
+    // 检查路径是否与词卡相交
+    for (let i = 1; i < path.length; i += 1) {
+      const start = path[i - 1];
+      const end = path[i];
+      const distance = pointToSegmentDistance(
+        { x: cardCenterX, y: cardCenterY },
+        start,
+        end
+      );
+      
+      // 词卡命中半径（约0.12）
+      if (distance < 0.12 && distance < bestDistance) {
+        bestDistance = distance;
+        bestIndex = index;
+      }
+    }
+  });
+  
+  return bestIndex;
+}
+
+// 下一题
+async function nextMatch() {
+  if (state.isBusy) return;
+  state.runId++;
+  generateMatchSet();
+  render();
+}
+
+// ============== 原有挥砍处理（保留兼容） ==============
+
 async function handleLearnSlash(payload) {
   if (state.screen !== "learn") return;
   learnRuntime.slashTrails.push({
     createdAt: performance.now(),
     points: payload.path
   });
+
+  // 匹配模式处理
+  if (learnRuntime.matchingMode) {
+    await handleMatchSlash(payload);
+    return;
+  }
 
   if (state.isBusy || !learnRuntime.roundActive) return;
 

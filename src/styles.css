@@ -1721,3 +1721,257 @@ button:disabled {
     grid-template-columns: repeat(2, minmax(120px, 1fr));
   }
 }
+
+/* ============== 匹配模式样式 ============== */
+
+/* 匹配模式覆盖层 - 在slash-stage内部 */
+.match-overlay {
+  position: absolute;
+  inset: 0;
+  z-index: 10;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: flex-start;
+  padding: 20px;
+  pointer-events: none;
+}
+
+.match-overlay > * {
+  pointer-events: auto;
+}
+
+/* 目标 emoji 区域 - 屏幕上方 */
+.match-emoji-area {
+  flex-shrink: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  padding: 16px;
+  margin-top: 20px;
+}
+
+.match-target-emoji {
+  width: 140px;
+  height: 140px;
+  display: grid;
+  place-items: center;
+  border-radius: 50%;
+  font-size: 80px;
+  background: radial-gradient(circle, rgba(255, 209, 102, 0.3) 0%, rgba(255, 209, 102, 0.1) 70%, transparent 100%);
+  box-shadow: 0 0 40px rgba(255, 209, 102, 0.4);
+  animation: emojiFloat 3s ease-in-out infinite;
+}
+
+@keyframes emojiFloat {
+  0%, 100% { transform: translateY(0); }
+  50% { transform: translateY(-10px); }
+}
+
+.match-emoji-label {
+  color: rgba(126, 249, 255, 0.8);
+  font-size: 14px;
+  font-weight: 900;
+  text-transform: uppercase;
+  letter-spacing: 0.1em;
+}
+
+/* 词卡区域 */
+.match-cards-area {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: 32px;
+  width: 100%;
+  max-width: 1200px;
+  padding: 10px;
+}
+
+/* 匹配词卡 - 添加浮动动画 + 初始倾斜角度 */
+.match-card {
+  position: relative;
+  cursor: pointer;
+  transition: transform 0.25s cubic-bezier(0.34, 1.56, 0.64, 1), box-shadow 0.2s ease;
+  transform: rotate(-2deg);
+  animation: cardFloat 2.5s ease-in-out infinite;
+}
+
+.match-card:nth-child(1) { transform: rotate(-3deg); animation-delay: 0s; }
+.match-card:nth-child(2) { transform: rotate(1.5deg); animation-delay: 0.4s; }
+.match-card:nth-child(3) { transform: rotate(-1deg); animation-delay: 0.8s; }
+.match-card:nth-child(4) { transform: rotate(2deg); animation-delay: 1.2s; }
+
+@keyframes cardFloat {
+  0% { 
+    transform: translateY(0) rotate(var(--base-rotate)) scale(1); 
+  }
+  20% { 
+    transform: translateY(-8px) rotate(calc(var(--base-rotate) - 2deg)) scale(1.02); 
+  }
+  40% { 
+    transform: translateY(-16px) rotate(calc(var(--base-rotate) + 1deg)) scale(1.03); 
+  }
+  60% { 
+    transform: translateY(-20px) rotate(var(--base-rotate)) scale(1.02); 
+  }
+  80% { 
+    transform: translateY(-14px) rotate(calc(var(--base-rotate) + 1.5deg)) scale(1.01); 
+  }
+  100% { 
+    transform: translateY(0) rotate(var(--base-rotate)) scale(1); 
+  }
+}
+
+.match-card:nth-child(1) { --base-rotate: -3deg; }
+.match-card:nth-child(2) { --base-rotate: 1.5deg; }
+.match-card:nth-child(3) { --base-rotate: -1deg; }
+.match-card:nth-child(4) { --base-rotate: 2deg; }
+
+.match-card:hover {
+  transform: translateY(-8px) scale(1.05);
+  animation-play-state: paused;
+  transition: transform 0.3s cubic-bezier(0.34, 1.56, 0.64, 1);
+}
+
+.match-card:active {
+  transform: scale(0.96);
+}
+
+.match-card-inner {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  height: 160px;
+  padding: 16px;
+  border-radius: 20px;
+  color: #102f36;
+  background: linear-gradient(180deg, color-mix(in srgb, var(--card), white 24%), color-mix(in srgb, var(--accent), white 16%));
+  box-shadow: 0 16px 28px rgba(17, 51, 58, 0.2), inset 0 0 0 3px rgba(255, 255, 255, 0.7);
+}
+
+.match-card-text {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 4px;
+}
+
+.match-card-text b {
+  font-size: 24px;
+  font-weight: 1000;
+  text-transform: uppercase;
+}
+
+.match-card-text small {
+  color: rgba(16, 47, 54, 0.7);
+  font-size: 18px;
+  font-weight: 900;
+}
+
+/* 正确词卡显示 emoji */
+.match-card-emoji {
+  width: 60px;
+  height: 60px;
+  display: grid;
+  place-items: center;
+  font-size: 36px;
+  border-radius: 50%;
+  background: rgba(255, 255, 255, 0.9);
+  box-shadow: 0 8px 16px rgba(0, 0, 0, 0.15);
+  animation: emojiReveal 0.5s ease-out;
+}
+
+@keyframes emojiReveal {
+  0% { transform: scale(0); opacity: 0; }
+  50% { transform: scale(1.2); }
+  100% { transform: scale(1); opacity: 1; }
+}
+
+/* 正确词卡状态 */
+.match-card.is-correct .match-card-inner {
+  background: linear-gradient(180deg, #06d6a0 0%, #00b4d8 100%);
+  box-shadow: 0 16px 28px rgba(6, 214, 160, 0.4), inset 0 0 0 4px rgba(255, 255, 255, 0.9);
+}
+
+/* 匹配结果提示 */
+.match-result {
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  transform: translate(-50%, -50%);
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 12px;
+  padding: 36px 48px;
+  border-radius: 32px;
+  text-align: center;
+  z-index: 10;
+  animation: resultPop 0.4s ease-out;
+}
+
+.match-result.is-success {
+  min-width: 360px;
+}
+
+.match-result.is-success {
+  background: linear-gradient(180deg, rgba(6, 214, 160, 0.95), rgba(0, 180, 216, 0.9));
+  box-shadow: 0 20px 40px rgba(6, 214, 160, 0.4);
+}
+
+.match-result.is-fail {
+  background: linear-gradient(180deg, rgba(239, 71, 111, 0.95), rgba(255, 107, 107, 0.9));
+  box-shadow: 0 20px 40px rgba(239, 71, 111, 0.4);
+}
+
+.match-result-emoji {
+  font-size: 72px;
+}
+
+.match-result-word {
+  color: #fff;
+  font-size: 48px;
+  font-weight: 1000;
+  text-transform: uppercase;
+}
+
+.match-result-chinese {
+  color: rgba(255, 255, 255, 0.9);
+  font-size: 24px;
+  font-weight: 900;
+}
+
+@keyframes resultPop {
+  0% { transform: translate(-50%, -50%) scale(0.5); opacity: 0; }
+  70% { transform: translate(-50%, -50%) scale(1.1); }
+  100% { transform: translate(-50%, -50%) scale(1); opacity: 1; }
+}
+
+/* 移动端适配 */
+@media (max-width: 768px) {
+  .match-cards-area {
+    grid-template-columns: repeat(2, 1fr);
+    gap: 12px;
+  }
+  .match-card-inner {
+    height: 140px;
+    padding: 12px;
+  }
+  .match-card-text b {
+    font-size: 16px;
+  }
+  .match-target-emoji {
+    width: 120px;
+    height: 120px;
+    font-size: 60px;
+  }
+  .match-result {
+    padding: 20px 28px;
+  }
+  .match-result-word {
+    font-size: 24px;
+  }
+}
