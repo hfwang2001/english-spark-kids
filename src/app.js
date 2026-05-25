@@ -23,12 +23,44 @@ const state = {
   allWordsLearned: false    // 是否所有单词都已学习
 };
 
+const ACTIVE_WORD_IDS = ["apple", "banana", "cat"];
+const ACTIVE_WORDS = ACTIVE_WORD_IDS
+  .map((id) => words.find((word) => word.id === id))
+  .filter(Boolean);
+const ACTIVE_WORD_ID_SET = new Set(ACTIVE_WORDS.map((word) => word.id));
 const PACKAGE_ICONS = ["🎁", "🎀", "📦", "🎉", "🪅", "🎊"];
 const ROUND_DURATION_MS = 60000;
 const MAX_REVIEW_WORDS = 6;
 const JUMP_MAX_LETTERS = 6;
-const ROUND_WORD_COUNT = 5;  // 每轮学习5个单词后切换环节
-const TOTAL_WORDS = words.length;
+const ROUND_WORD_COUNT = ACTIVE_WORDS.length;
+const TOTAL_WORDS = ACTIVE_WORDS.length;
+const JUMP_OPENING_VIDEO = assetHref("../word-video-assets/01-opening.mp4");
+const JUMP_CUSTOM_MEDIA = {
+  apple: [
+    assetHref("../word-video-assets/apple/02-girl-apple.mp4"),
+    assetHref("../word-video-assets/apple/03-boy-apple.mp4"),
+    assetHref("../word-video-assets/apple/04-help-child-apple.mp4"),
+    assetHref("../word-video-assets/apple/05-kid-apple-costume.mp4"),
+    assetHref("../word-video-assets/apple/06-apple-bits-table.mp4"),
+    assetHref("../word-video-assets/apple/07-cool-apple.mp4")
+  ],
+  banana: [
+    assetHref("../word-video-assets/banana/02-girl-banana.mp4"),
+    assetHref("../word-video-assets/banana/03-boy-banana.mp4"),
+    assetHref("../word-video-assets/banana/04-help-child.mp4"),
+    assetHref("../word-video-assets/banana/05-kid-banana-costume-rerun.mp4"),
+    assetHref("../word-video-assets/banana/06-banana-bits-table.mp4"),
+    assetHref("../word-video-assets/banana/07-cool-banana-fullbody.mp4")
+  ],
+  cat: [
+    assetHref("../word-video-assets/cat/02-girl-cat.mp4"),
+    assetHref("../word-video-assets/cat/03-boy-cat.mp4"),
+    assetHref("../word-video-assets/cat/04-help-child-cat.mp4"),
+    assetHref("../word-video-assets/cat/05-kid-cat-costume.mp4"),
+    assetHref("../word-video-assets/cat/06-little-cat-play.mp4"),
+    assetHref("../word-video-assets/cat/07-cool-cat.mp4")
+  ]
+};
 
 const learnRuntime = {
   detector: null,
@@ -40,7 +72,7 @@ const learnRuntime = {
   // 新的匹配学习模式
   matchingMode: true,  // 使用新的匹配模式
   targetEmoji: null,   // 目标 emoji
-  currentWordSet: [],   // 当前4张词卡
+  currentWordSet: [],   // 当前匹配词卡
   correctIndex: -1,     // 正确词卡的索引
   matched: false,      // 是否已匹配成功
   matchResult: null,    // 匹配结果
@@ -113,6 +145,10 @@ const jumpRuntime = {
   pendingGiftId: null,
   activeGiftId: null,
   flashcardWordIndex: null,
+  mediaVisible: false,
+  mediaTitle: "",
+  mediaStatus: "",
+  mediaToken: 0,
   lessonStatus: "站到镜头前，左右移动小人，再跳起来顶礼包。",
   detectorStatus: "我会跟着你移动，跳起来就能顶开奖包。",
   debugText: "",
@@ -130,13 +166,17 @@ const jumpRuntime = {
     flashcardEnglish: null,
     flashcardChinese: null,
     flashcardStatus: null,
+    mediaLayer: null,
+    mediaVideo: null,
+    mediaTitle: null,
+    mediaStatus: null,
     latest: null
   }
 };
 
-const jumpWordPool = words
+const jumpWordPool = ACTIVE_WORDS
   .map((word, index) => ({
-    index,
+    index: words.findIndex((item) => item.id === word.id),
     spelling: normalizeJumpWord(word.english)
   }))
   .filter((entry) => entry.spelling && entry.spelling.length <= JUMP_MAX_LETTERS);
@@ -146,7 +186,7 @@ const app = document.querySelector("#app");
 function render() {
   app.innerHTML = `
     <main class="shell screen-${state.screen}">
-      ${renderHeader()}
+      ${state.screen === "complete" ? "" : renderHeader()}
       ${renderScreen()}
     </main>
   `;
@@ -155,7 +195,7 @@ function render() {
 }
 
 function renderHeader() {
-  const progress = Math.round((state.learned.size / words.length) * 100);
+  const progress = Math.round((getActiveLearnedCount() / TOTAL_WORDS) * 100);
   return `
     <header class="topbar">
       <button class="brand" data-action="home" aria-label="返回首页">
@@ -184,6 +224,7 @@ function tabButton(screen, label, step) {
 function renderScreen() {
   if (state.screen === "learn") return renderLearn();
   if (state.screen === "jump") return renderJump();
+  if (state.screen === "complete") return renderComplete();
   if (state.screen === "quiz") return renderQuiz();
   if (state.screen === "reward") return renderReward();
   if (state.screen === "summary") return renderSummary();
@@ -197,7 +238,7 @@ function renderHome() {
       <div class="hero-copy">
         <p class="eyebrow">English for kids</p>
         <h1>Flash Card<br>Learning</h1>
-        <p class="hero-sub">20 words. Listen, repeat, play.</p>
+        <p class="hero-sub">${TOTAL_WORDS} words. Jump, match, repeat.</p>
         <div class="hero-actions">
           <button class="primary" data-action="jump">开始学习</button>
           <button class="secondary" data-action="quiz">直接闯关</button>
@@ -215,13 +256,13 @@ function renderLearn() {
   
   const current = words[state.learningIndex] || words[0];
   const latestWord = learnRuntime.lastHitIndex == null ? "-" : words[learnRuntime.lastHitIndex].english;
-  const learnedWords = words.filter((word) => state.learned.has(word.id));
-  const learnedPreview = (learnedWords.length ? learnedWords : words.slice(0, 6))
+  const learnedWords = ACTIVE_WORDS.filter((word) => state.learned.has(word.id));
+  const learnedPreview = (learnedWords.length ? learnedWords : ACTIVE_WORDS.slice(0, 3))
     .map((word) => compactCard(word, true, state.learned.has(word.id)))
     .join("");
   
   // 获取匹配模式的词卡
-  const masteredCount = state.jumpMastered.size;
+  const masteredCount = getActiveJumpMasteredCount();
   const matchCardsHtml = learnRuntime.currentWordSet.length > 0
     ? learnRuntime.currentWordSet.map((word, index) => matchingCardHtml(word, index, learnRuntime.correctIndex, learnRuntime.matched)).join("")
     : `<div style="color:#7ef9ff;text-align:center;padding:60px;background:rgba(126,249,255,0.1);border-radius:20px;margin:20px;">
@@ -252,10 +293,10 @@ function renderLearn() {
         <div>
           <p class="eyebrow">Match To Learn</p>
           <h1>匹配学习</h1>
-          <p class="learn-stage-copy">屏幕上方显示一个emoji，下方有4张词卡，找出对应的词卡并大幅挥手臂切中它！</p>
+          <p class="learn-stage-copy">屏幕上方显示一个emoji，下方会出现 4 张词卡，找出对应的词卡并大幅挥手臂切中它！</p>
         </div>
         <div class="learn-scoreboard">
-          <span><b id="learn-score-learned">${state.learned.size}</b> 已学会</span>
+          <span><b id="learn-score-learned">${getActiveLearnedCount()}</b> 已学会</span>
           <span><b>${learnRuntime.matched ? '✓' : '-'}</b> 本轮匹配</span>
         </div>
       </div>
@@ -352,7 +393,7 @@ function renderJump() {
           <p class="learn-stage-copy">上方每个礼包代表一个字母。系统会按顺序播报字母，小朋友跳起来顶对对应礼包，直到把整个单词拼出来，再进入闪卡学习。</p>
         </div>
         <div class="learn-scoreboard">
-          <span><b>${state.learned.size}</b> 已学会</span>
+          <span><b>${getActiveLearnedCount()}</b> 已学会</span>
           <span><b>${latestWord}</b> 当前单词</span>
           <span><b>${targetLetter}</b> 当前字母</span>
           <span><b>${progressText}</b> 拼写进度</span>
@@ -376,6 +417,13 @@ function renderJump() {
                 <div class="jump-avatar-arm right"></div>
                 <div class="jump-avatar-leg left"></div>
                 <div class="jump-avatar-leg right"></div>
+              </div>
+            </div>
+            <div id="jump-media-layer" class="jump-media-layer">
+              <video id="jump-media-video" class="jump-media-video" playsinline preload="auto"></video>
+              <div class="jump-media-copy">
+                <p id="jump-media-title" class="eyebrow">${jumpRuntime.mediaTitle || "Jump Story"}</p>
+                <strong id="jump-media-status">${jumpRuntime.mediaStatus || "准备播放新素材..."}</strong>
               </div>
             </div>
             <article id="jump-flashcard" class="jump-flashcard">
@@ -462,22 +510,38 @@ function renderReward() {
   `;
 }
 
+function renderComplete() {
+  return `
+    <section class="summary-layout">
+      <div class="summary-head">
+        <p class="eyebrow">Great Job</p>
+        <h1>恭喜你！</h1>
+        <p class="learn-stage-copy">今天学到了以下单词：${ACTIVE_WORDS.map((word) => word.english).join("、")}</p>
+        <button class="primary" data-action="complete-home">返回首页</button>
+      </div>
+      <div class="summary-grid">
+        ${ACTIVE_WORDS.map((word) => compactCard(word, true, true)).join("")}
+      </div>
+    </section>
+  `;
+}
+
 function renderSummary() {
-  const learned = state.learned.size || words.length;
+  const learned = getActiveLearnedCount() || TOTAL_WORDS;
   return `
     <section class="summary-layout">
       <div class="summary-head">
         <p class="eyebrow">Learning report</p>
-        <h1>Today we learned ${words.length} words</h1>
+        <h1>Today we learned ${TOTAL_WORDS} words</h1>
         <div class="summary-stats">
           <span><b>${learned}</b> learned</span>
           <span><b>${state.correct.size}</b> spoken well</span>
-          <span><b>${words.length}</b> cards</span>
+          <span><b>${TOTAL_WORDS}</b> cards</span>
         </div>
         <button class="primary" data-action="read-summary">播放总结</button>
       </div>
       <div class="summary-grid">
-        ${words.map((word) => compactCard(word, true)).join("")}
+        ${ACTIVE_WORDS.map((word) => compactCard(word, true)).join("")}
       </div>
     </section>
   `;
@@ -553,6 +617,10 @@ function syncScreenRuntime() {
     flashcardEnglish: null,
     flashcardChinese: null,
     flashcardStatus: null,
+    mediaLayer: null,
+    mediaVideo: null,
+    mediaTitle: null,
+    mediaStatus: null,
     latest: null
   };
 }
@@ -622,6 +690,10 @@ function mountJumpRuntime() {
   jumpRuntime.elements.flashcardEnglish = document.querySelector("#jump-flashcard-english");
   jumpRuntime.elements.flashcardChinese = document.querySelector("#jump-flashcard-chinese");
   jumpRuntime.elements.flashcardStatus = document.querySelector("#jump-flashcard-status");
+  jumpRuntime.elements.mediaLayer = document.querySelector("#jump-media-layer");
+  jumpRuntime.elements.mediaVideo = document.querySelector("#jump-media-video");
+  jumpRuntime.elements.mediaTitle = document.querySelector("#jump-media-title");
+  jumpRuntime.elements.mediaStatus = document.querySelector("#jump-media-status");
 
   jumpRuntime.detector.attach({
     video: jumpRuntime.elements.video,
@@ -630,9 +702,9 @@ function mountJumpRuntime() {
     debugElement: jumpRuntime.elements.debug
   });
 
-  ensureJumpWordRound();
   syncJumpScene();
   syncJumpFlashcard();
+  syncJumpMediaLayer();
 }
 
 function ensureJumpRuntime() {
@@ -654,7 +726,15 @@ function ensureJumpRuntime() {
 }
 
 async function handleAction(action) {
+  if (action === "complete-home") {
+    resetLearningJourney();
+    navigateTo("home");
+    return;
+  }
   if (["home", "learn", "jump", "quiz", "summary"].includes(action)) {
+    if (action === "jump" && state.screen === "home" && state.allWordsLearned) {
+      resetLearningJourney();
+    }
     navigateTo(action);
     return;
   }
@@ -722,20 +802,30 @@ async function retryLearnCamera() {
 async function startJumpExperience() {
   ensureJumpRuntime();
   mountJumpRuntime();
-  resumeJumpStage();
+  jumpRuntime.lessonStatus = "先看一段开场视频，马上进入跳跳开礼包。";
+  syncJumpFlashcard();
+  const introPlayed = await playJumpOpening();
+  if (!introPlayed || state.screen !== "jump") return;
   await jumpRuntime.detector.start();
+  if (state.screen !== "jump") return;
+  ensureJumpWordRound();
+  resumeJumpStage();
 }
 
 function stopJumpExperience() {
   pauseJumpStage();
   jumpRuntime.detector?.stop();
   cancelJumpPrompt();
+  cancelJumpMediaPlayback();
   jumpRuntime.giftNodes.forEach((node) => node.remove());
   jumpRuntime.giftNodes.clear();
   jumpRuntime.gifts = [];
   jumpRuntime.activeGiftId = null;
   jumpRuntime.pendingGiftId = null;
   jumpRuntime.flashcardWordIndex = null;
+  jumpRuntime.mediaVisible = false;
+  jumpRuntime.mediaTitle = "";
+  jumpRuntime.mediaStatus = "";
   jumpRuntime.currentWordIndex = null;
   jumpRuntime.currentSpelling = "";
   jumpRuntime.currentLetterIndex = 0;
@@ -933,6 +1023,93 @@ function cancelJumpPrompt() {
   }
 }
 
+function cancelJumpMediaPlayback() {
+  jumpRuntime.mediaToken += 1;
+  jumpRuntime.mediaVisible = false;
+  jumpRuntime.mediaTitle = "";
+  jumpRuntime.mediaStatus = "";
+  const video = jumpRuntime.elements.mediaVideo;
+  if (video) {
+    video.pause();
+    video.removeAttribute("src");
+    video.load();
+  }
+  syncJumpMediaLayer();
+}
+
+async function playJumpOpening() {
+  jumpRuntime.mediaTitle = "Jump Story";
+  jumpRuntime.mediaStatus = "开场视频播放中...";
+  syncJumpMediaLayer();
+  return playJumpMediaSequence([JUMP_OPENING_VIDEO], {
+    title: "Jump Story",
+    statusPrefix: "开场动画"
+  });
+}
+
+function getJumpCustomMedia(word) {
+  const key = normalizeJumpWord(word?.english || "");
+  return JUMP_CUSTOM_MEDIA[key] || null;
+}
+
+async function playJumpWordMedia(word, mediaSources, runId) {
+  jumpRuntime.lessonStatus = `${word.english} 新素材播放中...`;
+  syncJumpFlashcard();
+  const finished = await playJumpMediaSequence(mediaSources, {
+    title: `${word.english.toUpperCase()} Story`,
+    statusPrefix: word.english
+  });
+  if (!finished || runId !== state.runId || state.screen !== "jump") return false;
+  jumpRuntime.lessonStatus = `${word.english} 播放完成。`;
+  syncJumpFlashcard();
+  return true;
+}
+
+async function playJumpMediaSequence(sources, { title, statusPrefix } = {}) {
+  const video = jumpRuntime.elements.mediaVideo;
+  if (!video || !sources?.length) return false;
+
+  cancelJumpMediaPlayback();
+  const token = jumpRuntime.mediaToken;
+  jumpRuntime.mediaVisible = true;
+  jumpRuntime.mediaTitle = title || "Jump Story";
+  syncJumpMediaLayer();
+
+  for (let index = 0; index < sources.length; index += 1) {
+    if (token !== jumpRuntime.mediaToken || state.screen !== "jump") return false;
+    jumpRuntime.mediaStatus = `${statusPrefix || "素材"} ${index + 1}/${sources.length}`;
+    syncJumpMediaLayer();
+    const played = await playJumpMediaClip(video, sources[index], token);
+    if (!played) return false;
+  }
+
+  if (token !== jumpRuntime.mediaToken || state.screen !== "jump") return false;
+  jumpRuntime.mediaVisible = false;
+  jumpRuntime.mediaStatus = "";
+  syncJumpMediaLayer();
+  return true;
+}
+
+function playJumpMediaClip(video, source, token) {
+  return new Promise((resolve) => {
+    const finish = (result) => {
+      video.removeEventListener("ended", handleEnded);
+      video.removeEventListener("error", handleError);
+      resolve(result);
+    };
+    const handleEnded = () => finish(token === jumpRuntime.mediaToken && state.screen === "jump");
+    const handleError = () => finish(false);
+
+    video.pause();
+    video.currentTime = 0;
+    video.src = source;
+    video.load();
+    video.addEventListener("ended", handleEnded, { once: true });
+    video.addEventListener("error", handleError, { once: true });
+    video.play().catch(() => finish(false));
+  });
+}
+
 function resetJumpGiftVisualStates() {
   for (const gift of jumpRuntime.gifts) {
     gift.state = "closed";
@@ -946,8 +1123,9 @@ async function completeJumpSpellingWord() {
   cancelJumpPrompt();
   const runId = ++state.runId;
   const word = words[jumpRuntime.currentWordIndex];
-  jumpRuntime.flashcardWordIndex = jumpRuntime.currentWordIndex;
-  jumpRuntime.lessonStatus = `${word.english}，${word.chinese}`;
+  const customMedia = getJumpCustomMedia(word);
+  jumpRuntime.flashcardWordIndex = customMedia ? null : jumpRuntime.currentWordIndex;
+  jumpRuntime.lessonStatus = customMedia ? `拼对了 ${word.english}，开始播放新素材。` : `${word.english}，${word.chinese}`;
   state.learningIndex = jumpRuntime.currentWordIndex;
   state.isBusy = true;
   jumpRuntime.detector?.setPaused(true);
@@ -958,6 +1136,16 @@ async function completeJumpSpellingWord() {
   if (runId !== state.runId || state.screen !== "jump") return;
 
   try {
+    if (customMedia?.length) {
+      const played = await playJumpWordMedia(word, customMedia, runId);
+      if (!played || runId !== state.runId || state.screen !== "jump") return;
+      state.learned.add(word.id);
+      state.correct.add(word.id);
+      state.jumpMastered.add(word.id);
+      jumpRuntime.lessonStatus = `${word.english} 学完了，继续下一个单词。`;
+      syncJumpFlashcard();
+      await wait(260);
+    } else {
     await speak(word.english, { lang: "en-US", rate: 0.8, style: "jump-hit", pause: 100 });
     if (runId !== state.runId || state.screen !== "jump") return;
     jumpRuntime.lessonStatus = `跟我读：${word.english}`;
@@ -987,6 +1175,7 @@ async function completeJumpSpellingWord() {
         await speak(`The word is ${word.english}`, { lang: "en-US", rate: 0.78, style: "jump-repeat" });
       }
     }
+    }
   } catch (error) {
     if (runId !== state.runId || state.screen !== "jump") return;
     jumpRuntime.lessonStatus = error?.message || "这次没有成功读出来，我们继续下一个单词。";
@@ -1006,12 +1195,10 @@ async function completeJumpSpellingWord() {
     // 重置计数
     state.jumpRoundCount = 0;
     // 检查是否所有单词都已学习
-    if (state.learned.size >= TOTAL_WORDS) {
+    if (getActiveLearnedCount() >= TOTAL_WORDS) {
       state.allWordsLearned = true;
-      // 所有单词学完，提示用户
-      jumpRuntime.lessonStatus = "🎉 恭喜！所有单词都已学习完毕！";
+      jumpRuntime.lessonStatus = "跳跳环节完成，准备进入匹配学习。";
       syncJumpFlashcard();
-      return;
     }
     // 切换到"背单词"环节
     state.cyclePhase = "learn";
@@ -1097,6 +1284,18 @@ function syncJumpFlashcard() {
   if (jumpRuntime.elements.flashcardEnglish) jumpRuntime.elements.flashcardEnglish.textContent = word.english;
   if (jumpRuntime.elements.flashcardChinese) jumpRuntime.elements.flashcardChinese.textContent = word.chinese;
   if (jumpRuntime.elements.flashcardStatus) jumpRuntime.elements.flashcardStatus.textContent = jumpRuntime.lessonStatus;
+}
+
+function syncJumpMediaLayer() {
+  const layer = jumpRuntime.elements.mediaLayer;
+  if (!layer) return;
+  layer.classList.toggle("is-visible", !!jumpRuntime.mediaVisible);
+  if (jumpRuntime.elements.mediaTitle) {
+    jumpRuntime.elements.mediaTitle.textContent = jumpRuntime.mediaTitle || "Jump Story";
+  }
+  if (jumpRuntime.elements.mediaStatus) {
+    jumpRuntime.elements.mediaStatus.textContent = jumpRuntime.mediaStatus || "";
+  }
 }
 
 function resumeLearnArena() {
@@ -1311,7 +1510,9 @@ function drawSlashOverlay() {
 // 规则：正确答案必须来自"跳跳开礼包"成功拼对的单词，其他3张可以是任意单词
 function generateMatchSet() {
   // 获取已掌握的单词（来自"跳跳开礼包"）
-  const masteredWords = [...state.jumpMastered].map(id => words.find(w => w.id === id)).filter(Boolean);
+  const masteredWords = [...state.jumpMastered]
+    .map(id => words.find(w => w.id === id))
+    .filter((word) => word && ACTIVE_WORD_ID_SET.has(word.id));
   
   // 如果没有掌握任何单词，显示提示
   if (masteredWords.length === 0) {
@@ -1326,12 +1527,10 @@ function generateMatchSet() {
   // 随机选择一个正确答案
   const correctWord = masteredWords[Math.floor(Math.random() * masteredWords.length)];
   
-  // 获取其他单词（不能包含正确答案）
-  const otherWords = words.filter(w => w.id !== correctWord.id);
-  const shuffledOther = [...otherWords].sort(() => Math.random() - 0.5);
-  
-  // 选择3个干扰项
-  const wrongWords = shuffledOther.slice(0, 3);
+  const otherActiveWords = ACTIVE_WORDS.filter((word) => word.id !== correctWord.id);
+  const extraPool = words.filter((word) => !ACTIVE_WORD_ID_SET.has(word.id) && word.id !== correctWord.id);
+  const extraWord = extraPool[Math.floor(Math.random() * extraPool.length)] || null;
+  const wrongWords = extraWord ? [...otherActiveWords, extraWord] : [...otherActiveWords];
   
   // 组合词卡并打乱顺序
   const wordSet = [correctWord, ...wrongWords];
@@ -1417,20 +1616,12 @@ async function playMatchSuccessAudio(word) {
   if (state.learnRoundCount >= ROUND_WORD_COUNT) {
     // 重置计数
     state.learnRoundCount = 0;
-    // 检查是否所有单词都已学习
-    if (state.learned.size >= TOTAL_WORDS) {
-      state.allWordsLearned = true;
-      // 所有单词学完，提示用户
-      await speak("🎉 恭喜！所有单词都已学习完毕！", { lang: "zh-CN", rate: 0.85 });
-      return;
-    }
-    // 切换到"跳跳开礼包"环节
-    state.cyclePhase = "jump";
-    await speak("背单词环节完成，准备进入跳跳开礼包环节...", { lang: "zh-CN", rate: 0.85 });
+    state.allWordsLearned = true;
+    await speak("恭喜你，今天学到了 apple、banana、cat。", { lang: "zh-CN", rate: 0.85 });
     if (runId !== state.runId) return;
-    await wait(1500);
+    await wait(900);
     if (runId !== state.runId) return;
-    navigateTo("jump");
+    navigateTo("complete");
     return;
   }
   
@@ -1664,9 +1855,9 @@ function nextQuiz() {
 
 async function readSummary() {
   const runId = ++state.runId;
-  if (!await speak(`Today we learn about ${words.map((word) => word.english).join(", ")}.`, { lang: "en-US", rate: 0.74, style: "summary" })) return;
+  if (!await speak(`Today we learn about ${ACTIVE_WORDS.map((word) => word.english).join(", ")}.`, { lang: "en-US", rate: 0.74, style: "summary" })) return;
   if (runId !== state.runId) return;
-  await speak(`今天我们学习了${words.map((word) => word.chinese).join("、")}。`, { lang: "zh-CN", rate: 0.82, style: "summary" });
+  await speak(`今天我们学习了${ACTIVE_WORDS.map((word) => word.chinese).join("、")}。`, { lang: "zh-CN", rate: 0.82, style: "summary" });
 }
 
 function introLine(word) {
@@ -1744,7 +1935,7 @@ function syncLearnHud() {
   const current = words[state.learningIndex] || words[0];
   const latestWord = learnRuntime.lastHitIndex == null ? "-" : words[learnRuntime.lastHitIndex].english;
 
-  if (learnRuntime.elements.scoreLearned) learnRuntime.elements.scoreLearned.textContent = String(state.learned.size);
+  if (learnRuntime.elements.scoreLearned) learnRuntime.elements.scoreLearned.textContent = String(getActiveLearnedCount());
   if (learnRuntime.elements.scoreRound) learnRuntime.elements.scoreRound.textContent = String(learnRuntime.collectedOrder.length);
   if (learnRuntime.elements.scoreLatest) learnRuntime.elements.scoreLatest.textContent = latestWord;
   if (learnRuntime.elements.scoreTimer) learnRuntime.elements.scoreTimer.textContent = `${getRoundSecondsLeft()}s`;
@@ -1803,6 +1994,48 @@ function playHitWord(word) {
 
 function wait(ms) {
   return new Promise((resolve) => window.setTimeout(resolve, ms));
+}
+
+function assetHref(relativePath) {
+  return new URL(relativePath, import.meta.url).href;
+}
+
+function getActiveLearnedCount() {
+  return ACTIVE_WORDS.filter((word) => state.learned.has(word.id)).length;
+}
+
+function getActiveJumpMasteredCount() {
+  return ACTIVE_WORDS.filter((word) => state.jumpMastered.has(word.id)).length;
+}
+
+function resetLearningJourney() {
+  stopSpeech();
+  state.runId += 1;
+  state.learningIndex = 0;
+  state.quizIndex = 0;
+  state.learned = new Set();
+  state.correct = new Set();
+  state.transcript = "";
+  state.isBusy = false;
+  state.jumpMastered = new Set();
+  state.jumpRoundCount = 0;
+  state.learnRoundCount = 0;
+  state.cyclePhase = "jump";
+  state.allWordsLearned = false;
+
+  learnRuntime.currentWordSet = [];
+  learnRuntime.targetEmoji = null;
+  learnRuntime.correctIndex = -1;
+  learnRuntime.matched = false;
+  learnRuntime.matchResult = null;
+  learnRuntime.lastHitIndex = null;
+
+  jumpRuntime.nextWordCursor = 0;
+  jumpRuntime.currentWordIndex = null;
+  jumpRuntime.currentSpelling = "";
+  jumpRuntime.currentLetterIndex = 0;
+  jumpRuntime.flashcardWordIndex = null;
+  jumpRuntime.lessonStatus = "站到镜头前，左右移动小人，再跳起来顶礼包。";
 }
 
 function clamp(value, min, max) {
