@@ -550,88 +550,41 @@ button:disabled {
 
 .jump-gift.is-target .jump-gift-core {
   animation: jumpGiftTarget 0.9s ease-in-out infinite;
-  box-shadow:
-    0 24px 34px rgba(255, 209, 102, 0.34),
-    0 0 0 6px rgba(255, 255, 255, 0.22),
-    inset 0 0 0 2px rgba(255, 255, 255, 0.82);
+}
+
+.jump-gift.is-target .jump-gift-letter-art {
+  filter:
+    drop-shadow(0 16px 26px rgba(255, 209, 102, 0.42))
+    drop-shadow(0 0 18px rgba(255, 255, 255, 0.5));
 }
 
 .jump-gift-core {
+  width: 100%;
   height: 100%;
   display: grid;
   place-items: center;
-  align-content: center;
-  gap: 6px;
-  padding: 12px;
-  border-radius: 36px;
-  color: #102f36;
-  background:
-    linear-gradient(180deg, color-mix(in srgb, var(--gift), white 20%), color-mix(in srgb, var(--accent), white 8%));
-  box-shadow:
-    0 24px 30px rgba(17, 51, 58, 0.24),
-    inset 0 0 0 2px rgba(255, 255, 255, 0.82);
+  padding: 6px;
 }
 
 .jump-gift.is-correct .jump-gift-core {
   transform: scale(1.08);
-  box-shadow:
-    0 28px 40px rgba(4, 184, 200, 0.28),
-    0 0 0 8px rgba(126, 249, 255, 0.18),
-    inset 0 0 0 2px rgba(255, 255, 255, 0.82);
+}
+
+.jump-gift.is-correct .jump-gift-letter-art {
+  filter:
+    drop-shadow(0 18px 28px rgba(4, 184, 200, 0.3))
+    drop-shadow(0 0 18px rgba(126, 249, 255, 0.4));
 }
 
 .jump-gift.is-wrong .jump-gift-core {
   animation: jumpGiftWrong 0.32s ease-out;
 }
 
-.jump-gift::before,
-.jump-gift::after {
-  content: "";
-  position: absolute;
-  pointer-events: none;
-}
-
-.jump-gift::before {
-  left: 50%;
-  top: 10px;
-  width: 24px;
-  height: calc(100% - 20px);
-  border-radius: 999px;
-  background: rgba(255, 255, 255, 0.48);
-  transform: translateX(-50%);
-}
-
-.jump-gift::after {
-  top: 50%;
-  left: 8px;
-  right: 8px;
-  height: 22px;
-  border-radius: 999px;
-  background: rgba(255, 255, 255, 0.42);
-  transform: translateY(-50%);
-}
-
-.jump-gift-icon,
-.jump-gift-title,
-.jump-gift-sub {
-  position: relative;
-  z-index: 1;
-}
-
-.jump-gift-icon {
-  font-size: 54px;
-  line-height: 1;
-}
-
-.jump-gift-title {
-  font-size: 18px;
-  font-weight: 1000;
-}
-
-.jump-gift-sub {
-  color: rgba(16, 47, 54, 0.72);
-  font-size: 13px;
-  font-weight: 900;
+.jump-gift-letter-art {
+  width: 152px;
+  height: 152px;
+  object-fit: contain;
+  filter: drop-shadow(0 12px 20px rgba(17, 51, 58, 0.22));
 }
 
 .jump-gift.is-open {
@@ -689,78 +642,15 @@ button:disabled {
   filter: blur(3px);
 }
 
-.jump-avatar-body {
+.jump-avatar-image {
   position: absolute;
   left: 50%;
-  bottom: 12px;
-  width: 124px;
-  height: 218px;
+  bottom: 10px;
+  width: 170px;
+  height: auto;
   transform: translateX(-50%);
-}
-
-.jump-avatar-head {
-  position: absolute;
-  left: 50%;
-  top: 0;
-  width: 86px;
-  height: 86px;
-  display: grid;
-  place-items: center;
-  border-radius: 50%;
-  background: linear-gradient(180deg, #fff7d8, #ffe2b8);
-  box-shadow: 0 14px 22px rgba(17, 51, 58, 0.18);
-  font-size: 46px;
-  transform: translateX(-50%);
-}
-
-.jump-avatar-torso {
-  position: absolute;
-  left: 50%;
-  top: 74px;
-  width: 94px;
-  height: 82px;
-  border-radius: 34px 34px 28px 28px;
-  background: linear-gradient(180deg, #ef476f, #d63259);
-  box-shadow: 0 16px 24px rgba(17, 51, 58, 0.18);
-  transform: translateX(-50%);
-}
-
-.jump-avatar-arm,
-.jump-avatar-leg {
-  position: absolute;
-  width: 18px;
-  border-radius: 999px;
-  background: #102f36;
-}
-
-.jump-avatar-arm {
-  top: 92px;
-  height: 74px;
-}
-
-.jump-avatar-arm.left {
-  left: 12px;
-  transform: rotate(18deg);
-}
-
-.jump-avatar-arm.right {
-  right: 12px;
-  transform: rotate(-18deg);
-}
-
-.jump-avatar-leg {
-  top: 146px;
-  height: 90px;
-}
-
-.jump-avatar-leg.left {
-  left: 42px;
-  transform: rotate(8deg);
-}
-
-.jump-avatar-leg.right {
-  right: 42px;
-  transform: rotate(-8deg);
+  transform-origin: center bottom;
+  filter: drop-shadow(0 12px 20px rgba(17, 51, 58, 0.2));
 }
 
 .jump-avatar.is-jumping .jump-avatar-shadow {
@@ -768,7 +658,7 @@ button:disabled {
   opacity: 0.52;
 }
 
-.jump-avatar.is-jumping .jump-avatar-body {
+.jump-avatar.is-jumping .jump-avatar-image {
   animation: jumpAvatarPose 0.3s ease-out infinite alternate;
 }
 

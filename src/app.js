@@ -61,6 +61,19 @@ const JUMP_CUSTOM_MEDIA = {
     assetHref("../word-video-assets/cat/07-cool-cat.mp4")
   ]
 };
+const ALPHABET_PNG = Object.fromEntries(
+  "ABCDEFGHIJKLMNOPQRSTUVWXYZ".split("").map((letter) => [
+    letter,
+    assetHref(`../alphabet/png/${letter}.png`)
+  ])
+);
+const ALPHABET_GIF = Object.fromEntries(
+  "ABCDEFGHIJKLMNOPQRSTUVWXYZ".split("").map((letter) => [
+    letter,
+    assetHref(`../alphabet/gif/${letter}.gif`)
+  ])
+);
+const JUMP_AVATAR_GIF = assetHref("../stella-spring-rider/stella-spring-rider-transparent.gif");
 
 const learnRuntime = {
   detector: null,
@@ -156,6 +169,7 @@ const jumpRuntime = {
     stage: null,
     gifts: null,
     avatar: null,
+    avatarImage: null,
     video: null,
     canvas: null,
     detectorStatus: null,
@@ -410,14 +424,7 @@ function renderJump() {
             <div id="jump-gifts" class="jump-gifts"></div>
             <div id="jump-avatar" class="jump-avatar">
               <div class="jump-avatar-shadow"></div>
-              <div class="jump-avatar-body">
-                <div class="jump-avatar-head">🧒</div>
-                <div class="jump-avatar-torso"></div>
-                <div class="jump-avatar-arm left"></div>
-                <div class="jump-avatar-arm right"></div>
-                <div class="jump-avatar-leg left"></div>
-                <div class="jump-avatar-leg right"></div>
-              </div>
+              <img class="jump-avatar-image" src="${JUMP_AVATAR_GIF}" alt="Stella spring rider" />
             </div>
             <div id="jump-media-layer" class="jump-media-layer">
               <video id="jump-media-video" class="jump-media-video" playsinline preload="auto"></video>
@@ -607,6 +614,7 @@ function syncScreenRuntime() {
     stage: null,
     gifts: null,
     avatar: null,
+    avatarImage: null,
     video: null,
     canvas: null,
     detectorStatus: null,
@@ -680,6 +688,7 @@ function mountJumpRuntime() {
   jumpRuntime.elements.stage = document.querySelector("#jump-stage");
   jumpRuntime.elements.gifts = document.querySelector("#jump-gifts");
   jumpRuntime.elements.avatar = document.querySelector("#jump-avatar");
+  jumpRuntime.elements.avatarImage = document.querySelector(".jump-avatar-image");
   jumpRuntime.elements.video = document.querySelector("#jump-video");
   jumpRuntime.elements.canvas = document.querySelector("#jump-overlay");
   jumpRuntime.elements.detectorStatus = document.querySelector("#jump-detector-status");
@@ -1228,9 +1237,7 @@ function syncJumpScene() {
         node.className = "jump-gift";
         node.innerHTML = `
           <div class="jump-gift-core">
-            <span class="jump-gift-icon"></span>
-            <b class="jump-gift-title"></b>
-            <small class="jump-gift-sub"></small>
+            <img class="jump-gift-letter-art" alt="" />
           </div>
         `;
         giftsContainer.appendChild(node);
@@ -1239,11 +1246,21 @@ function syncJumpScene() {
       node.className = `jump-gift is-${gift.state} ${gift.letter === targetLetter ? "is-target" : ""}`;
       node.style.left = `${gift.x * 100}%`;
       const word = words[jumpRuntime.currentWordIndex ?? 0] || words[0];
+      const upperLetter = gift.letter.toUpperCase();
+      const isTarget = gift.letter === targetLetter;
+      const letterAsset = isTarget ? ALPHABET_GIF[upperLetter] : ALPHABET_PNG[upperLetter];
       node.style.setProperty("--gift", word.color);
       node.style.setProperty("--accent", word.accent);
-      node.querySelector(".jump-gift-icon").textContent = gift.letter.toUpperCase();
-      node.querySelector(".jump-gift-title").textContent = gift.letter.toUpperCase();
-      node.querySelector(".jump-gift-sub").textContent = gift.state === "correct" ? "Correct" : "Jump it";
+      const image = node.querySelector(".jump-gift-letter-art");
+      if (image) {
+        if (image.dataset.asset !== letterAsset) {
+          image.src = letterAsset;
+          image.dataset.asset = letterAsset;
+        }
+        if (image.alt !== upperLetter) {
+          image.alt = upperLetter;
+        }
+      }
     }
 
     for (const [id, node] of Array.from(jumpRuntime.giftNodes.entries())) {
@@ -1257,9 +1274,15 @@ function syncJumpScene() {
   const stage = jumpRuntime.elements.stage;
   if (avatar && stage) {
     const height = Math.max(320, stage.clientHeight || 0);
+    const isJumping = jumpRuntime.avatarY > 0.02;
     avatar.style.left = `${jumpRuntime.avatarX * 100}%`;
     avatar.style.transform = `translate(-50%, ${-jumpRuntime.avatarY * height}px)`;
-    avatar.classList.toggle("is-jumping", jumpRuntime.avatarY > 0.02);
+    avatar.classList.toggle("is-jumping", isJumping);
+    const avatarImage = jumpRuntime.elements.avatarImage;
+    if (avatarImage && avatarImage.dataset.asset !== JUMP_AVATAR_GIF) {
+      avatarImage.src = JUMP_AVATAR_GIF;
+      avatarImage.dataset.asset = JUMP_AVATAR_GIF;
+    }
   }
 }
 

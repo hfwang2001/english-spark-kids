@@ -1,0 +1,30 @@
+{
+  "createdAt": "2026-05-25T12:02:23.668737Z",
+  "request": {
+    "model": "happyhorse-1.0-r2v",
+    "prompt": "Use character1 as the exact same Stella character: a cute golden yellow giraffe-like preschool cartoon mascot, big glossy brown eyes, tiny ossicones, warm smile, simple flat 2D children's educational cartoon style. Create a clean looping game asset animation, 4 seconds, vertical 9:16 composition, white or very light plain background. Stella sits safely on a playground spring rider toy, like a children's park bouncing rocker. The toy has a small rounded saddle seat directly under Stella, a horizontal handlebar in front of her chest, and a visible coiled spring below the seat connected to a small base on the ground. Important: no vertical pole passes through Stella's body, no pole between the legs, no awkward body placement. Stella's two short arms hold the horizontal handlebar, her legs are relaxed to the sides of the seat, full body visible. Animation: the spring rider compresses downward, then bounces upward, then settles and repeats. The bounce should be large, readable, playful, and suitable for a GIF loop. Cute squash-and-stretch, crisp outlines, safe preschool toy design, no subtitles, no text, no logo, no watermark, no other characters, no realistic 3D.",
+    "media": [
+      {
+        "url": "/Users/hfwang/Documents/Codex/2026-05-19/pipline-https-www-bilibili-com-bangumi/assets/final/stella-from-1mp4-crop.png"
+      }
+    ],
+    "parameters": {
+      "resolution": "720P",
+      "ratio": "9:16",
+      "duration": 4,
+      "watermark": false
+    }
+  },
+  "response": {
+    "status_code": 200,
+    "request_id": "e96cf4d6-5cd0-9896-bbdf-acdb9a93e002",
+    "code": "",
+    "message": "",
+    "output": {
+      "task_id": "73b7e12b-ff9a-4e14-994d-32c83ba41ff1",
+      "task_status": "PENDING",
+      "video_url": ""
+    },
+    "usage": null
+  }
+}
