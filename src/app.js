@@ -86,6 +86,7 @@ const learnRuntime = {
   matchingMode: true,  // 使用新的匹配模式
   targetEmoji: null,   // 目标 emoji
   currentWordSet: [],   // 当前匹配词卡
+  reviewCursor: 0,     // 当前复习轮到的词
   correctIndex: -1,     // 正确词卡的索引
   matched: false,      // 是否已匹配成功
   matchResult: null,    // 匹配结果
@@ -214,17 +215,8 @@ function renderHeader() {
     <header class="topbar">
       <button class="brand" data-action="home" aria-label="返回首页">
         <span class="brand-mark">Aa</span>
-        <span>English Spark</span>
+        <span>Speak</span>
       </button>
-      <nav class="tabs" aria-label="游戏步骤">
-        ${tabButton("jump", "跳跳开礼包", "1")}
-        ${tabButton("learn", "背单词", "2")}
-        ${tabButton("quiz", "听读闯关", "3")}
-        ${tabButton("summary", "学习总结", "4")}
-      </nav>
-      <div class="meter" aria-label="学习进度">
-        <span style="width:${progress}%"></span>
-      </div>
     </header>
   `;
 }
@@ -255,7 +247,6 @@ function renderHome() {
         <p class="hero-sub">${TOTAL_WORDS} words. Jump, match, repeat.</p>
         <div class="hero-actions">
           <button class="primary" data-action="jump">开始学习</button>
-          <button class="secondary" data-action="quiz">直接闯关</button>
         </div>
       </div>
     </section>
@@ -268,8 +259,6 @@ function renderLearn() {
     generateMatchSet();
   }
   
-  const current = words[state.learningIndex] || words[0];
-  const latestWord = learnRuntime.lastHitIndex == null ? "-" : words[learnRuntime.lastHitIndex].english;
   const learnedWords = ACTIVE_WORDS.filter((word) => state.learned.has(word.id));
   const learnedPreview = (learnedWords.length ? learnedWords : ACTIVE_WORDS.slice(0, 3))
     .map((word) => compactCard(word, true, state.learned.has(word.id)))
@@ -279,11 +268,7 @@ function renderLearn() {
   const masteredCount = getActiveJumpMasteredCount();
   const matchCardsHtml = learnRuntime.currentWordSet.length > 0
     ? learnRuntime.currentWordSet.map((word, index) => matchingCardHtml(word, index, learnRuntime.correctIndex, learnRuntime.matched)).join("")
-    : `<div style="color:#7ef9ff;text-align:center;padding:60px;background:rgba(126,249,255,0.1);border-radius:20px;margin:20px;">
-        <p style="font-size:24px;margin:0 0 16px;">🎯 先完成"跳跳开礼包"</p>
-        <p style="font-size:16px;margin:0;opacity:0.8;">完成字母拼读后，这里会出现对应单词的匹配题</p>
-        <p style="font-size:14px;margin:20px 0 0;opacity:0.6;">已掌握: ${masteredCount} 个单词</p>
-       </div>`;
+    : "";
   
   // 获取目标 emoji
   const targetEmojiHtml = learnRuntime.targetEmoji 
@@ -303,25 +288,8 @@ function renderLearn() {
 
   return `
     <section class="learn-layout arcade-learn">
-      <div class="learn-stage-head">
-        <div>
-          <p class="eyebrow">Match To Learn</p>
-          <h1>匹配学习</h1>
-          <p class="learn-stage-copy">屏幕上方显示一个emoji，下方会出现 4 张词卡，找出对应的词卡并大幅挥手臂切中它！</p>
-        </div>
-        <div class="learn-scoreboard">
-          <span><b id="learn-score-learned">${getActiveLearnedCount()}</b> 已学会</span>
-          <span><b>${learnRuntime.matched ? '✓' : '-'}</b> 本轮匹配</span>
-        </div>
-      </div>
-
       <div class="learn-arcade-grid learn-arcade-grid--single">
         <section class="arena-panel arena-panel--immersive">
-          <div class="wheel-status ${state.isBusy ? "is-busy" : ""}">
-            <span class="wheel-status-dot"></span>
-            <strong id="learn-stage-label">${getLearnStageLabel()}</strong>
-          </div>
-          
           <!-- 姿态检测层 + 匹配舞台 -->
           <div class="slash-stage">
             <video id="learn-video" class="hidden-pose-video" autoplay muted playsinline></video>
@@ -349,18 +317,7 @@ function renderLearn() {
             <button class="primary" data-action="next-match" ${state.isBusy ? "disabled" : ""}>下一题</button>
             <button class="secondary" data-action="retry-camera">重新打开摄像头</button>
           </div>
-          <div class="stage-tracking-bar">
-            <div class="stage-tracking-copy">
-              <p class="eyebrow">Body Tracking</p>
-              <h2>骨架挥砍舞台</h2>
-              <p id="learn-gesture-status" class="status">${learnRuntime.gestureStatus}</p>
-            </div>
-            <div class="stage-tracking-debug">
-              <div class="vision-badge">Pose Skeleton</div>
-              <pre id="learn-gesture-debug" class="debug-panel">${learnRuntime.debugText || "等待动作调试数据..."}</pre>
-            </div>
-          </div>
-          <small>玩法提示：不用看摄像头画面，只看骨架和手腕发光点，像挥光剑一样切过去就行。</small>
+          <pre id="learn-gesture-debug" class="debug-panel">${learnRuntime.debugText || "等待动作调试数据..."}</pre>
         </section>
       </div>
 
@@ -394,32 +351,9 @@ function matchingCardHtml(word, index, correctIndex, matched) {
 function renderJump() {
   const currentIndex = jumpRuntime.flashcardWordIndex ?? jumpRuntime.currentWordIndex ?? 0;
   const current = words[currentIndex] || words[0];
-  const latestWord = jumpRuntime.currentWordIndex == null ? "-" : words[jumpRuntime.currentWordIndex]?.english || "-";
-  const targetLetter = getCurrentJumpTargetLetter()?.toUpperCase() || "-";
-  const progressText = formatJumpProgress();
-
   return `
     <section class="learn-layout jump-learn">
-      <div class="learn-stage-head">
-        <div>
-          <p class="eyebrow">Jump To Learn</p>
-          <h1>跳跳开礼包</h1>
-          <p class="learn-stage-copy">上方每个礼包代表一个字母。系统会按顺序播报字母，小朋友跳起来顶对对应礼包，直到把整个单词拼出来，再进入闪卡学习。</p>
-        </div>
-        <div class="learn-scoreboard">
-          <span><b>${getActiveLearnedCount()}</b> 已学会</span>
-          <span><b>${latestWord}</b> 当前单词</span>
-          <span><b>${targetLetter}</b> 当前字母</span>
-          <span><b>${progressText}</b> 拼写进度</span>
-        </div>
-      </div>
-
       <section class="jump-stage-panel">
-          <div class="wheel-status ${state.isBusy ? "is-busy" : ""}">
-            <span class="wheel-status-dot"></span>
-            <strong>${state.isBusy ? "跟读中，小人先暂停一下" : "左右移动小人，跳起来顶开上方礼包"}</strong>
-          </div>
-
           <div id="jump-stage" class="jump-stage">
             <div id="jump-gifts" class="jump-gifts"></div>
             <div id="jump-avatar" class="jump-avatar">
@@ -449,8 +383,6 @@ function renderJump() {
           <div class="learn-controls">
             <button class="secondary" data-action="retry-jump-camera">重新打开摄像头</button>
           </div>
-
-          <small>玩法提示：不用挥手，只要左右移动身体让小人跟着走，再原地跳一下就能顶开奖包。</small>
       </section>
 
       <aside class="vision-panel jump-camera-panel">
@@ -639,9 +571,7 @@ function mountLearnRuntime() {
   learnRuntime.elements.slashCanvas = document.querySelector("#learn-slash-overlay");
   learnRuntime.elements.video = document.querySelector("#learn-video");
   learnRuntime.elements.canvas = document.querySelector("#learn-overlay");
-  learnRuntime.elements.status = document.querySelector("#learn-gesture-status");
   learnRuntime.elements.debug = document.querySelector("#learn-gesture-debug");
-  learnRuntime.elements.stageLabel = document.querySelector("#learn-stage-label");
   learnRuntime.elements.scoreLearned = document.querySelector("#learn-score-learned");
   learnRuntime.elements.scoreRound = document.querySelector("#learn-score-round");
   learnRuntime.elements.scoreLatest = document.querySelector("#learn-score-latest");
@@ -1533,9 +1463,7 @@ function drawSlashOverlay() {
 // 规则：正确答案必须来自"跳跳开礼包"成功拼对的单词，其他3张可以是任意单词
 function generateMatchSet() {
   // 获取已掌握的单词（来自"跳跳开礼包"）
-  const masteredWords = [...state.jumpMastered]
-    .map(id => words.find(w => w.id === id))
-    .filter((word) => word && ACTIVE_WORD_ID_SET.has(word.id));
+  const masteredWords = ACTIVE_WORDS.filter((word) => state.jumpMastered.has(word.id));
   
   // 如果没有掌握任何单词，显示提示
   if (masteredWords.length === 0) {
@@ -1547,8 +1475,8 @@ function generateMatchSet() {
     return;
   }
   
-  // 随机选择一个正确答案
-  const correctWord = masteredWords[Math.floor(Math.random() * masteredWords.length)];
+  const correctWord = masteredWords[learnRuntime.reviewCursor % masteredWords.length];
+  learnRuntime.reviewCursor = (learnRuntime.reviewCursor + 1) % Math.max(1, masteredWords.length);
   
   const otherActiveWords = ACTIVE_WORDS.filter((word) => word.id !== correctWord.id);
   const extraPool = words.filter((word) => !ACTIVE_WORD_ID_SET.has(word.id) && word.id !== correctWord.id);
@@ -2047,6 +1975,7 @@ function resetLearningJourney() {
   state.allWordsLearned = false;
 
   learnRuntime.currentWordSet = [];
+  learnRuntime.reviewCursor = 0;
   learnRuntime.targetEmoji = null;
   learnRuntime.correctIndex = -1;
   learnRuntime.matched = false;
